@@ -10,3 +10,11 @@ obj/
 *.ogg
 *.mp4
 *.mkv
+
+# Local scratch space for reference material (docs, HypseusSinge emulator,
+# game media) kept for testing. Never commit - can be large / third-party.
+temp/
+
+# Local release publish output
+publish/
+*.zip
