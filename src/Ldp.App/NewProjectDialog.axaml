@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.NewProjectDialog"
+        Title="New Game Project"
+        Width="640" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource BgWindow}">
+    <StackPanel Margin="22" Spacing="14">
+
+        <TextBlock Text="Create a new laserdisc game" FontSize="18" FontWeight="Bold"
+                   Foreground="{DynamicResource FgPrimary}"/>
+
+        <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+            <StackPanel Spacing="8">
+                <TextBlock Text="STEP 1 — Point at your Hypseus Singe emulator"
+                           Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13">
+                    Your game must live inside the emulator's <Run FontFamily="Consolas,monospace">singe</Run> folder so
+                    it can find the framework and run. If you don't have Hypseus Singe yet, download the
+                    <Run FontWeight="Bold">Windows</Run> build (v2.12.1 recommended — v3.0.0 is a beta; pick 64-bit unless
+                    you're on 32-bit Windows) and extract it somewhere first:
+                </TextBlock>
+                <TextBlock Name="DownloadLink" Foreground="{DynamicResource Accent}" FontSize="13"
+                           Cursor="Hand" Text="https://github.com/DirtBagXon/hypseus-singe/releases"
+                           PointerPressed="OnOpenDownload"/>
+                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                    <Button Content="Locate Hypseus folder…" Click="OnLocateHypseus"/>
+                    <TextBlock Name="HypseusStatus" VerticalAlignment="Center" FontSize="12"
+                               Foreground="{DynamicResource FgFaint}" Text="(the folder that contains hypseus.exe)"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+            <StackPanel Spacing="8">
+                <TextBlock Text="STEP 2 — Name the game folder"
+                           Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                           Text="Short, no spaces (spaces become underscores). This names the folder, the .singe script, and the project file."/>
+                <TextBox Name="FolderNameBox" PlaceholderText="e.g. Sonic_the_Hedgehog_1996" FontFamily="Consolas,monospace"
+                         TextChanged="OnFolderNameChanged"/>
+                <TextBlock Name="PathPreview" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                           FontFamily="Consolas,monospace" TextWrapping="Wrap" Text=""/>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Name="ErrorText" Foreground="{DynamicResource PortDeath}" FontSize="12"
+                   TextWrapping="Wrap" IsVisible="False"/>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" Click="OnCancel"/>
+            <Button Name="CreateButton" Content="Create Game Project" IsEnabled="False" Click="OnCreate"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

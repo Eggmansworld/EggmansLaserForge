@@ -1,0 +1,34 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Ldp.App.App"
+             RequestedThemeVariant="Dark">
+
+    <Application.Resources>
+        <!--
+          App palette. Everything binds these via DynamicResource so accent
+          and theme swapping later is a resource change, not a UI rewrite.
+          Background is deliberately blue-slate (not near-black) so the app
+          stays visually separate from other dark applications behind it.
+        -->
+        <Color x:Key="BgWindowColor">#262A36</Color>
+        <SolidColorBrush x:Key="BgWindow" Color="{StaticResource BgWindowColor}"/>
+        <SolidColorBrush x:Key="BgBar" Color="#2E3342"/>
+        <SolidColorBrush x:Key="BgPanel" Color="#2A2E3B"/>
+        <SolidColorBrush x:Key="BgCanvas" Color="#1E212B"/>
+        <SolidColorBrush x:Key="BgNode" Color="#333849"/>
+        <SolidColorBrush x:Key="BgOverlay" Color="#E0262A36"/>
+        <SolidColorBrush x:Key="FgPrimary" Color="#E4E7F0"/>
+        <SolidColorBrush x:Key="FgMuted" Color="#A0A6BA"/>
+        <SolidColorBrush x:Key="FgFaint" Color="#787F96"/>
+        <SolidColorBrush x:Key="Divider" Color="#3B4152"/>
+        <SolidColorBrush x:Key="Accent" Color="#4CC2FF"/>
+        <SolidColorBrush x:Key="AccentAmber" Color="#E8B04C"/>
+        <SolidColorBrush x:Key="PortSuccess" Color="#5CD679"/>
+        <SolidColorBrush x:Key="PortDeath" Color="#F0605C"/>
+        <SolidColorBrush x:Key="PortTimeout" Color="#E8B04C"/>
+    </Application.Resources>
+
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>

@@ -1,0 +1,287 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="using:Ldp.App"
+        x:Class="Ldp.App.MainWindow"
+        Title="Eggman's LaserForge"
+        Width="1460" Height="900"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource BgWindow}">
+
+    <DockPanel>
+
+        <!-- Top bar: File menu keeps this compact at any window width -->
+        <Border DockPanel.Dock="Top" Background="{DynamicResource BgBar}" Padding="6,2">
+            <Grid ColumnDefinitions="*,Auto,*">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Menu VerticalAlignment="Center">
+                        <MenuItem Header="_File" Padding="10,6">
+                            <MenuItem Name="NewProjectButton" Header="New Project…" Click="OnNewProject"/>
+                            <MenuItem Name="OpenProjectButton" Header="Open Project…" Click="OnOpenProject"/>
+                            <Separator/>
+                            <MenuItem Name="SaveProjectButton" Header="Save" IsEnabled="False" Click="OnSaveProject"/>
+                            <MenuItem Name="SaveAsButton" Header="Save As…" IsEnabled="False" Click="OnSaveAs"/>
+                            <Separator/>
+                            <MenuItem Name="ImportSingeButton" Header="⇤ Import .singe Script…" IsEnabled="False" Click="OnImportSinge"/>
+                            <MenuItem Name="ExportSingeButton" Header="⇥ Export .singe to Game Folder" IsEnabled="False" Click="OnExportSinge"/>
+                            <Separator/>
+                            <MenuItem Name="TestHypseusButton" Header="▶ Test in Hypseus…" IsEnabled="False" Click="OnTestInHypseus"/>
+                        </MenuItem>
+                        <MenuItem Header="_Help" Padding="10,6">
+                            <MenuItem Header="About Eggman's LaserForge…" Click="OnAbout"/>
+                        </MenuItem>
+                    </Menu>
+                    <TextBlock Name="ProjectNameText" VerticalAlignment="Center"
+                               Foreground="{DynamicResource FgPrimary}" FontSize="14" FontWeight="SemiBold" Text=""/>
+                    <TextBlock Name="AutosaveText" VerticalAlignment="Center"
+                               Foreground="{DynamicResource FgFaint}" FontSize="12" Text=""/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="8,2">
+                    <Button Name="EditorTabButton" Content="🎬 Editor" Focusable="False" Click="OnShowEditor"/>
+                    <Button Name="StoryboardTabButton" Content="🗺 Storyboard" Focusable="False" Click="OnShowStoryboard"/>
+                    <Button Name="GameTabButton" Content="🎮 Game Setup" Focusable="False" Click="OnShowGameSetup"/>
+                </StackPanel>
+
+                <TextBlock Grid.Column="2" Name="FileInfoText" HorizontalAlignment="Right"
+                           VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                           TextTrimming="CharacterEllipsis" Margin="8,0,0,0"
+                           Text="Create or open a project to begin"/>
+            </Grid>
+        </Border>
+
+        <!-- Status bar with slide-open log (very bottom of the window) -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource BgBar}"
+                BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0">
+            <StackPanel>
+                <Border Name="LogPanel" IsVisible="False" Height="170" Background="{DynamicResource BgCanvas}"
+                        BorderBrush="{DynamicResource Divider}" BorderThickness="0,0,0,1">
+                    <ScrollViewer Name="LogScroll">
+                        <ItemsControl Name="LogList" Margin="10,6">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Foreground="{DynamicResource FgMuted}"
+                                               FontFamily="Consolas,monospace" FontSize="12"
+                                               TextWrapping="Wrap" Margin="0,1"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Border>
+                <DockPanel Margin="10,3">
+                    <Button Name="LogToggle" DockPanel.Dock="Right" Content="Log ▲" Focusable="False"
+                            FontSize="11" Padding="8,2" Click="OnToggleLog"/>
+                    <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"
+                               FontSize="12" TextTrimming="CharacterEllipsis" Text="Ready."/>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Transport controls -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource BgBar}" Padding="12,6,12,10">
+            <StackPanel Spacing="4">
+                <Canvas Name="MarkerStrip" Height="10" Margin="12,0" Background="Transparent"/>
+                <Slider Name="FrameSlider" Minimum="0" Maximum="0" IsEnabled="False"
+                        Focusable="False" ValueChanged="OnSliderChanged"/>
+
+                <Grid ColumnDefinitions="*,Auto,*">
+                    <!-- Keyboard hints: left (static help) -->
+                    <TextBlock Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                               Foreground="{DynamicResource FgFaint}" FontSize="12" TextWrapping="Wrap" MaxWidth="330"
+                               Text="←/→ ±1 · Shift ±10 · Ctrl ±100 · Space play · I/O mark · Enter new scene · U/D/L/R/1/2/S add move · E skip-end · Ctrl+Z undo"/>
+
+                    <!-- Everything the mouse lives on, in one central cluster -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+
+                        <!-- Go to frame -->
+                        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,0,0,3">
+                            <TextBlock Text="Go to" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                                       VerticalAlignment="Center"/>
+                            <TextBox Name="GotoBox" Width="96" FontFamily="Consolas,monospace" FontSize="14"
+                                     KeyDown="OnGotoKeyDown" PlaceholderText="frame #"/>
+                            <Button Name="GotoButton" Content="→" Focusable="False" Width="34" Click="OnGotoClicked"/>
+                        </StackPanel>
+
+                        <Border Width="75"/>
+
+                        <!-- Counter directly above the transport buttons -->
+                        <StackPanel Spacing="2">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                <TextBlock Name="FrameCounter" Text="——————" FontFamily="Consolas,monospace"
+                                           FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Accent}"
+                                           DoubleTapped="OnCounterDoubleTapped"/>
+                                <TextBlock Name="FrameTotal" Text="" FontFamily="Consolas,monospace"
+                                           FontSize="15" Foreground="{DynamicResource FgFaint}"
+                                           VerticalAlignment="Bottom" Margin="0,0,0,5"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                <Button Content="⏮"    Focusable="False" Click="OnTransport" Tag="home"  FontSize="16" Width="44"/>
+                                <Button Content="−100" Focusable="False" Click="OnTransport" Tag="-100" Width="52"/>
+                                <Button Content="−10"  Focusable="False" Click="OnTransport" Tag="-10"  Width="46"/>
+                                <Button Content="−1"   Focusable="False" Click="OnTransport" Tag="-1"   Width="40"/>
+                                <Button Name="PlayButton" Content="▶" Focusable="False" Click="OnTransport" Tag="play" FontSize="16" Width="56"/>
+                                <Button Content="+1"   Focusable="False" Click="OnTransport" Tag="1"    Width="40"/>
+                                <Button Content="+10"  Focusable="False" Click="OnTransport" Tag="10"   Width="46"/>
+                                <Button Content="+100" Focusable="False" Click="OnTransport" Tag="100"  Width="52"/>
+                                <Button Content="⏭"    Focusable="False" Click="OnTransport" Tag="end"  FontSize="16" Width="44"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Width="75"/>
+
+                        <!-- Marks -->
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Bottom" Margin="0,0,0,3">
+                            <Button Name="MarkInButton"  Content="⟦ In"  Focusable="False" IsEnabled="False" Click="OnMarkIn"/>
+                            <Button Name="MarkOutButton" Content="Out ⟧" Focusable="False" IsEnabled="False" Click="OnMarkOut"/>
+                            <TextBlock Name="MarkText" VerticalAlignment="Center" Foreground="{DynamicResource AccentAmber}"
+                                       FontFamily="Consolas,monospace" FontSize="14" Text=""/>
+                            <Button Name="NewClipButton" Content="＋ New Scene" Focusable="False" IsEnabled="False" Click="OnNewClip"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <Grid ColumnDefinitions="235,*,400">
+
+            <!-- Video list -->
+            <Border Grid.Column="0" Background="{DynamicResource BgPanel}" Padding="8">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="VIDEOS" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                               FontWeight="Bold" Margin="4,0,0,6"/>
+                    <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+                        <Button Name="AddVideoButton" Content="＋ Add Video…"
+                                HorizontalAlignment="Stretch" Focusable="False" IsEnabled="False" Click="OnAddVideo"/>
+                        <Button Name="RemoveVideoButton" Content="✕ Remove Selected Video"
+                                HorizontalAlignment="Stretch" Focusable="False" IsEnabled="False" Click="OnRemoveVideo"/>
+                    </StackPanel>
+                    <ListBox Name="VideoList" Background="Transparent" SelectionChanged="OnVideoSelected"
+                             Focusable="False" Margin="0,0,0,8">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="app:VideoItem">
+                                <StackPanel Margin="2">
+                                    <TextBlock Text="{Binding Title}" Foreground="{DynamicResource FgPrimary}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FgFaint}" FontSize="11" FontFamily="Consolas,monospace"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <!-- Center: editor OR storyboard -->
+            <Grid Grid.Column="1">
+                <Grid Name="EditorPane" Background="Black">
+                    <Image Name="VideoImage" Stretch="Uniform"/>
+                    <Border Name="ScanOverlay" Background="{DynamicResource BgOverlay}" IsVisible="False">
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Width="420">
+                            <TextBlock Name="ScanText" Text="Indexing video…" HorizontalAlignment="Center"
+                                       Foreground="{DynamicResource FgPrimary}" FontSize="16"/>
+                            <ProgressBar Name="ScanProgress" Minimum="0" Maximum="1" Height="8"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Active-move input display during playback -->
+                    <TextBlock Name="InputOverlay" IsVisible="False" IsHitTestVisible="False"
+                               FontSize="100" FontWeight="Bold" Foreground="#C0FFFFFF"
+                               HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                               Margin="0,0,30,12"/>
+
+                    <!-- End-of-scene / end-of-flow banner shown when playback finishes -->
+                    <Border Name="EndOverlay" IsVisible="False" IsHitTestVisible="False"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                            Background="#C0101014" CornerRadius="6" Padding="18,8" Margin="0,0,0,20">
+                        <TextBlock Name="EndOverlayText" Text="End of Scene" FontSize="22" FontWeight="Bold"
+                                   Foreground="{DynamicResource AccentAmber}"/>
+                    </Border>
+
+                    <!-- New clip form -->
+                    <Border Name="ClipForm" Background="{DynamicResource BgOverlay}" IsVisible="False"
+                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                            CornerRadius="8" Padding="20" BorderBrush="{DynamicResource Divider}" BorderThickness="1">
+                        <StackPanel Spacing="10" Width="380">
+                            <TextBlock Text="New Scene" Foreground="{DynamicResource FgPrimary}" FontSize="16" FontWeight="Bold"/>
+                            <TextBlock Name="ClipFormRange" Foreground="{DynamicResource AccentAmber}" FontFamily="Consolas,monospace" FontSize="13"/>
+                            <TextBox Name="ClipNameBox" PlaceholderText="Scene name (e.g. 'Level 2 bots attack death')"
+                                     KeyDown="OnClipFormKeyDown"/>
+                            <TextBox Name="ClipDescBox" PlaceholderText="Description / notes (optional, Shift+Enter for new line)"
+                                     AcceptsReturn="True" Height="70" KeyDown="OnClipFormKeyDown"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                                <Button Content="Cancel" Focusable="False" Click="OnClipFormCancel"/>
+                                <Button Name="ClipFormCreate" Content="Create Clip" Click="OnClipFormCreate"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+
+                <app:StoryboardView Name="Storyboard" IsVisible="False"/>
+                <app:GameSetupView Name="GameSetup" IsVisible="False"/>
+            </Grid>
+
+            <!-- Clip bin + interactions -->
+            <Border Grid.Column="2" Background="{DynamicResource BgPanel}" Padding="8">
+                <Grid RowDefinitions="Auto,3*,Auto,Auto,Auto,2*">
+                    <TextBlock Grid.Row="0" Text="SCENES" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                               FontWeight="Bold" Margin="4,0,0,6"/>
+                    <ListBox Grid.Row="1" Name="ClipList" Background="Transparent" SelectionChanged="OnClipSelected"
+                             Focusable="False" DoubleTapped="OnGotoClip">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="app:ClipItem">
+                                <DockPanel Margin="2">
+                                    <Image DockPanel.Dock="Left" Source="{Binding Thumbnail}" Width="88" Height="50"
+                                           Stretch="UniformToFill" Margin="0,0,8,0"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" Foreground="{DynamicResource FgPrimary}" FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FgFaint}" FontSize="13" FontFamily="Consolas,monospace"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <StackPanel Grid.Row="2" Spacing="6" Margin="0,8,0,0">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button Name="PlayClipButton" Content="▶ Play Scene" Focusable="False" IsEnabled="False" Click="OnPlayClip"/>
+                            <Button Name="GotoClipButton" Content="Go to Start" Focusable="False" IsEnabled="False" Click="OnGotoClip"/>
+                            <Button Name="DeleteClipButton" Content="Delete" Focusable="False" IsEnabled="False" Click="OnDeleteClip"/>
+                            <Button Name="MoveClipUpButton" Content="▲" Focusable="False" Width="32" IsEnabled="False"
+                                    Click="OnMoveClipUp" ToolTip.Tip="Move scene up"/>
+                            <Button Name="MoveClipDownButton" Content="▼" Focusable="False" Width="32" IsEnabled="False"
+                                    Click="OnMoveClipDown" ToolTip.Tip="Move scene down"/>
+                        </StackPanel>
+                        <Button Name="ToStoryboardButton" Content="🗺 Add to Storyboard (or drag onto it)" HorizontalAlignment="Stretch"
+                                Focusable="False" IsEnabled="False" Click="OnAddToStoryboard"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="3" Name="InteractionsTitle" Text="INTERACTIONS" Foreground="{DynamicResource FgFaint}"
+                               FontSize="11" FontWeight="Bold" Margin="4,12,0,4"/>
+                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="4" Margin="0,0,0,6">
+                        <Button Content="↑" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Up"/>
+                        <Button Content="↓" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Down"/>
+                        <Button Content="←" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Left"/>
+                        <Button Content="→" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Right"/>
+                        <Button Content="🅐" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Button1"/>
+                        <Button Content="🅑" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Button2"/>
+                        <Button Content="⏭" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Skip"
+                                ToolTip.Tip="Skip move: any input skips this passage (custom window)"/>
+                        <Button Name="SetSkipEndButton" Content="⤵ End" Focusable="False"
+                                IsEnabled="False" Click="OnSetSkipEnd"
+                                ToolTip.Tip="Set the selected skip's end to the current frame (or press E)"/>
+                        <Button Name="DeleteInteractionButton" Content="✕" Focusable="False" Width="36"
+                                IsEnabled="False" Click="OnDeleteInteraction"
+                                ToolTip.Tip="Remove selected move"/>
+                    </StackPanel>
+                    <ListBox Grid.Row="5" Name="InteractionList" Background="Transparent" Focusable="False"
+                             SelectionChanged="OnInteractionSelected" DoubleTapped="OnGotoInteraction">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:DataType="app:InteractionItem">
+                                <TextBlock Text="{Binding Display}" Foreground="{Binding Brush}"
+                                           FontWeight="{Binding Weight}"
+                                           FontFamily="Consolas,monospace" FontSize="13" Margin="2"/>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+
+    </DockPanel>
+</Window>

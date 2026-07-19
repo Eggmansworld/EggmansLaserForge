@@ -1,0 +1,155 @@
+commit 7dc4e85db63c8dc9477e90c592dcc22889971c3d (HEAD -> master, origin/master, origin/HEAD)
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 7 22:00:36 2025 +0100
+
+    Framework: Check on bad dip_Lang values
+
+commit cb295be6584d6ec518161133c3750d1a9432871b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue May 6 21:00:58 2025 +0100
+
+    Switch "Language" to "Track" to make more generic.
+
+commit db53f3e97d02504e61ff204109fd094a8a4dc6e4
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 5 15:47:28 2025 +0100
+
+    Kimmy: Add Multi-Language support to Frameworks
+    
+      - Requires Hypseus v2.11.5+
+      - Using LangOpt array in header
+      - Additionally added to legacy Framework
+      - See Danmachi.singe as working example
+
+commit 8347e7fc14c39e509ca08374bfa44bd96cd456fb
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 1 14:06:15 2025 +0100
+
+    Add some Framework prep for release
+
+commit c6543a3267e63efca2ea0227d96ae03cddc8d3ab
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat Apr 27 18:34:46 2024 +0100
+
+    scoreBezel: Full initialize at game start
+
+commit 764345de29cd773d86405c1d0b4e842910d6f2f2
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat Apr 27 16:43:23 2024 +0100
+
+    Don't allow iCredits to go minus
+
+commit 4532ec16b5085121fbc7a5138d5672e4aa71ede5
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri Apr 26 19:13:37 2024 +0100
+
+    Kimmy: offsetflip becomes a global + (TILT and "Next Move") Fix
+    
+      Reset p2 scores in Scorebezel immediately on a new game start.
+
+commit ba739714bd548eab44eaa285e64d38a28532c836
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon Apr 22 11:42:58 2024 +0100
+
+    Framework: Fix 2P save states and scoreBezel
+
+commit a2fd6ea0abb14510bc4a6926a19e3e57528afafa
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri Apr 19 17:35:25 2024 +0100
+
+    Add 2-Player Bezel Scoreboard support
+    
+    This requires enabling the second player score in the main Singe file:
+    
+    scoreBezelEnable(true, 1)
+    scoreBezelTwinScoreOn(true)
+
+commit bb87985f8d889e3644a48fb042629385d9211e43
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri Apr 5 23:30:00 2024 +0100
+
+    Framework drawSpriteNumber() fix
+
+commit 1a855d936bd391d9a20d4898a38ad7d2d9733066
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon Apr 1 17:18:04 2024 +0100
+
+    v2.11.2 spriteUnload
+
+commit a9a52e91713bf3a367a157925a2d3279cc74a2ae
+Author: DirtBagXon <github@pani.cx>
+Date:   Thu Jul 13 16:56:06 2023 +0100
+
+    Framework: Don't enforce an "extreme" difficulty level.
+
+commit 0d949ddb5b97e65311f59edf03b7ca635643ae20
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Thu Jun 1 20:44:19 2023 +0100
+
+    Service Menu: Show Frame Number
+
+commit 578e8e8f3a774043dfd53703035b3cea0124023b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Thu Jun 1 08:51:26 2023 +0100
+
+    Remove a restrictive sequencing check between Continue and GameOver
+
+commit c67de09e2d9cde448a20f4eefe1a36edf85e8364
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 19 18:34:37 2023 +0100
+
+    Alignment
+
+commit ded00bae74b4d68ca12b46d2a78b5c85f0bb79cb
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 19 18:16:40 2023 +0100
+
+    Representative Font Size
+
+commit fb53788fdfeb56354dc3ba3bf2e2c5085c872737
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 19 17:12:51 2023 +0100
+
+    SBC Minimal Overlay updates
+
+commit a2b077514642f03b04a45015e3e43edb744656da
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 17 22:47:00 2023 +0100
+
+    New Style SBC Minimal Overlay
+
+commit 707fef72d930319d5dad0fb71383f65db69aa58a
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 12 14:40:00 2023 +0100
+
+    Singe 2: Backlog Games
+
+commit 883c0329d8947d23af68a126adc52997b93ff2be
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat May 6 16:01:49 2023 +0100
+
+    DL2e: With Bezel Scoreboard
+
+commit 3c98ba725643861c654e4e39f206dd8b3214bc77
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat May 6 15:09:21 2023 +0100
+
+    Oeil-Pour-Oeil: First Minimal Overlay Switch (2.10.4)
+
+commit 3bcf1f8bb70942afd40f15f46311b30136e12136
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 5 16:48:53 2023 +0100
+
+    2.10.4 Changes
+
+commit ef8429186865fa9b0f2a8c8c8a09db5c0ef68809
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed Apr 12 19:22:00 2023 +0100
+
+    API setOverlaySize() call added
+
+commit 0de2807055db241c501c4be84db9ef3f07d8db1c
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun Oct 2 22:06:10 2022 +0100
+
+    Singe 2: AlteredCarbon Asterix Chantze_HD DL2e DLe Fire_and_Ice Titan_AE Tron

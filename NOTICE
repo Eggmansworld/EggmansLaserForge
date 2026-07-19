@@ -1,0 +1,31 @@
+Eggman's LaserForge
+Copyright (c) 2026 Eggmansworld
+
+The MIT License in LICENSE covers the source code and documentation of this
+application. It does NOT cover the following, which remain the property of
+their respective owners:
+
+Bundled Singe frameworks
+------------------------
+The "Framework" and "FrameworkKimmy" folders under assets/Frameworks are the
+work of the Hypseus Singe community (the framework by DirtBagXon and
+contributors; FrameworkKimmy by its respective author). They are redistributed
+here for convenience so the application can install them into a user's Hypseus
+Singe setup. All rights remain with their authors.
+
+Game content
+------------
+Any video (.m2v), audio (.ogg), artwork, menus, or LUA scripts that a user
+authors, imports, or exports with this application are the property of their
+respective copyright holders. Nothing in this repository grants any rights to
+such content.
+
+Third-party components
+----------------------
+This application is built on and/or ships the following, under their own
+licenses:
+  - Avalonia UI (MIT)
+  - Sdcb.FFmpeg and the FFmpeg native libraries (LGPL/GPL as applicable)
+  - NAudio (MIT)
+
+See each project for its full license text.

@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Ldp.App.StoryboardView">
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource BgBar}" Padding="10,6">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button Name="PlayFlowButton" Content="▶ Play Flow" Focusable="False" Click="OnPlayFlow"/>
+                    <Button Name="FitViewButton" Content="Fit View" Focusable="False" Click="OnFitView"/>
+                    <Button Name="AutoLayoutButton" Content="Auto-Layout" Focusable="False" Click="OnAutoLayout"/>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
+                           Foreground="{DynamicResource FgFaint}" FontSize="12"
+                           Text="drag empty space to pan · wheel to zoom · drag a port to wire · Del removes selection"/>
+            </DockPanel>
+        </Border>
+
+        <Border Name="Viewport" Background="{DynamicResource BgCanvas}" ClipToBounds="True">
+            <Canvas Name="World">
+                <Canvas Name="EdgeLayer"/>
+                <Canvas Name="NodeLayer"/>
+            </Canvas>
+        </Border>
+    </DockPanel>
+</UserControl>

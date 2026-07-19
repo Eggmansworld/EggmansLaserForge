@@ -1,0 +1,52 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.AboutDialog"
+        Title="About Eggman's LaserForge"
+        Width="660" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource BgWindow}">
+    <StackPanel>
+
+        <!-- Banner -->
+        <Image Source="avares://Ldp.App/Assets/banner.png" Stretch="UniformToFill"
+               Height="262" HorizontalAlignment="Stretch"/>
+
+        <StackPanel Margin="22,16,22,18" Spacing="10">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="Eggman's LaserForge" FontSize="22" FontWeight="Bold"
+                           Foreground="{DynamicResource FgPrimary}"/>
+                <TextBlock Name="VersionText" Text="Version 0.1.0" VerticalAlignment="Bottom"
+                           Foreground="{DynamicResource FgFaint}" FontSize="13" Margin="0,0,0,3"/>
+            </StackPanel>
+
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                       Text="A game studio for Hypseus Singe. Mark video scenes with frame-exact precision, storyboard the game's flow as a node graph, choreograph the player's moves, and export a complete, ready-to-run Singe game — no hand-editing of LUA. A native C#/Avalonia application, fully portable and self-contained."/>
+
+            <Grid ColumnDefinitions="110,*" RowDefinitions="Auto,Auto,Auto" Margin="0,4,0,0">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Project" Foreground="{DynamicResource FgFaint}" FontWeight="Bold" FontSize="13"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Name="ProjectLink" Text="github.com/Eggmansworld/EggmansLaserForge"
+                           Foreground="{DynamicResource Accent}" FontSize="13" Cursor="Hand"
+                           PointerPressed="OnOpenProject"/>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Created by" Foreground="{DynamicResource FgFaint}" FontWeight="Bold" FontSize="13" Margin="0,6,0,0"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" TextWrapping="Wrap" Foreground="{DynamicResource FgPrimary}" FontSize="13" Margin="0,6,0,0"
+                           Text="Eggman — for the laserdisc game and Hypseus Singe community."/>
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Built with" Foreground="{DynamicResource FgFaint}" FontWeight="Bold" FontSize="13" Margin="0,6,0,0"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" Foreground="{DynamicResource FgPrimary}" FontSize="13" Margin="0,6,0,0"
+                           Text="Claude (Anthropic), using the Fable coding model — pair-programmed with Eggman across a series of sessions, with the frame engine verified frame-for-frame against Hypseus Singe."/>
+            </Grid>
+
+            <Border Height="1" Background="{DynamicResource Divider}" Margin="0,8"/>
+
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                       Text="Source code and documentation are MIT-licensed. The bundled Singe frameworks, and any game video, audio, artwork, or scripts you author or import, remain the property of their respective copyright holders. See LICENSE and NOTICE."/>
+
+            <DockPanel Margin="0,6,0,0">
+                <Button DockPanel.Dock="Right" Content="Close" Click="OnClose"/>
+                <Button HorizontalAlignment="Left" Content="☕  Buy Me a Coffee" Click="OnBuyCoffee"/>
+            </DockPanel>
+        </StackPanel>
+    </StackPanel>
+</Window>

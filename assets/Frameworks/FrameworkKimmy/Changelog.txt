@@ -1,0 +1,203 @@
+commit 0ecf06d5e32c3b143cce1a0b2d8d5eda0e6997d1 (HEAD -> master, origin/master, origin/HEAD)
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun Jun 8 18:35:05 2025 +0100
+
+    Kimmy: SKIN folder missing
+
+commit 050db3ca75ce72f99b60374fc9bc7dbcfc98115b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun Jun 8 18:12:54 2025 +0100
+
+    Kimmy: Allow removal of SKIN folders
+
+commit 7dc4e85db63c8dc9477e90c592dcc22889971c3d
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 7 22:00:36 2025 +0100
+
+    Framework: Check on bad dip_Lang values
+
+commit cb295be6584d6ec518161133c3750d1a9432871b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue May 6 21:00:58 2025 +0100
+
+    Switch "Language" to "Track" to make more generic.
+
+commit db53f3e97d02504e61ff204109fd094a8a4dc6e4 
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 5 15:47:28 2025 +0100
+
+    Kimmy: Add Multi-Language support to Frameworks
+    
+      - Requires Hypseus v2.11.5+
+      - Using LangOpt array in header
+      - Additionally added to legacy Framework
+      - See Danmachi.singe as working example
+
+commit 8347e7fc14c39e509ca08374bfa44bd96cd456fb
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 1 14:06:15 2025 +0100
+
+    Add some Framework prep for release
+
+commit ccc0e9472bddacc9adea03eefeaa73c04cf3a4af
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Thu Jun 20 10:01:40 2024 +0100
+
+    Kimmy: Add MazeGame - Revisit level fix
+
+commit 23495c78d95176c59fedac5cdf6d5c1d27df84c6
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 20 18:05:20 2024 +0100
+
+    Kimmy: Add Live Type option to Service Menu
+
+commit 5f94211942f1b0d19d3e73efdbde3a34e286f26a
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat May 18 15:01:40 2024 +0100
+
+    Kimmy: Add scoreBezelReset()
+
+commit fba95f84104818a5aed645865a3895e64ee40227
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 15 19:21:44 2024 +0100
+
+    Kimmy: Forbid extra life in 2-Player mode
+
+commit dce79c9158cdaaa146b067625bb8e10ed20ffc24
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 13 12:44:41 2024 +0100
+
+    Kimmy: Fix bad PATH in LOOPDIR
+
+commit c64631c493b64248000cc9ca93546fef1803a43b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 13 12:23:19 2024 +0100
+
+    Kimmy: pathLook = 5 + Service Menu game type reset fix
+
+commit e853fb435b91b66b4c74dd98b718bf30caa7ec61
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon May 6 09:51:50 2024 +0100
+
+    Kimmy: Optional: 'move hidden' (if death value = -3)
+
+commit 5d97cd3f81c1f7eb6ac49766d4aa5ad5bd6ec828
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun May 5 13:51:10 2024 +0100
+
+    Kimmy: Removed ranking on unauthorized modes
+
+commit 1280da617e7b607873a1e46cea4afd5cc66e5875
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun May 5 00:31:54 2024 +0100
+
+    Kimmy: Correct the 'lone' path issue
+
+commit 846acdfa8a825788ddedb1ad75fe2d3c470b8b4b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat May 4 00:42:17 2024 +0100
+
+    Kimmy: Add pathLook
+
+commit e04b63f20331f1812f3adf1b223ecf6641c6f87c
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat May 4 00:33:29 2024 +0100
+
+    Kimmy: Backfill Skins with anything and nothing
+
+commit b639c9ab367ae6fe36461442c15f52542f051bd6
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri May 3 11:09:26 2024 +0100
+
+    Kimmy: Add WAIT = NOTHING
+
+commit 7a4fa7c128e238e9994d1865029bf6e0f4da96f7
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 1 14:23:13 2024 +0100
+
+    Kimmy: Added ANYTHING and NOTHING moves
+    
+    1) Added function checkAny() and checkNo()
+    2) Added ANYTHING and NOTHING inside doMove()
+    3) added ANYTHING and NOTHING inside drawAction()
+    4) added ANYTHING and NOTHING inside getHints()
+
+commit 1f738fdd70b17b12f530d4cfaa1ef761ae9ff132
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed May 1 08:54:57 2024 +0100
+
+    Kimmy: Removed 3 LFS calls in doFinish
+
+commit d0ce7c396d7bae05973ab3df5ad0a0c763cc93e5
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 30 23:16:46 2024 +0100
+
+    Kimmy: Level select bug
+
+commit 26711d0c0a836e6c45ac35eb9ed0b25f66a58dfe
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 30 09:26:42 2024 +0100
+
+    Allow game to start on Info panels during intro
+
+commit 3bf1e9626d046fc1e6edd6ede0078cfbf1dd2fb6
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun Apr 28 16:25:56 2024 +0100
+
+    drawLifeBar() function + correct HINT prompt
+
+commit c6543a3267e63efca2ea0227d96ae03cddc8d3ab
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat Apr 27 18:34:46 2024 +0100
+
+    scoreBezel: Full initialize at game start
+
+commit 764345de29cd773d86405c1d0b4e842910d6f2f2
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sat Apr 27 16:43:23 2024 +0100
+
+    Don't allow iCredits to go minus
+
+commit 4532ec16b5085121fbc7a5138d5672e4aa71ede5
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Fri Apr 26 19:13:37 2024 +0100
+
+    Kimmy: offsetflip becomes a global + (TILT and "Next Move") Fix
+    
+      Reset p2 scores in Scorebezel immediately on a new game start.
+
+commit d0cb8e01aede8ba2e90a637750329c6e5fb3624b
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed Apr 24 19:21:56 2024 +0100
+
+    Kimmy: dip_MinimalOverlay Enhancement
+
+commit c05e2a74b9c5daf397a4e525d073f75de663ea74
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Wed Apr 24 14:24:50 2024 +0100
+
+    Kimmy: Further ES compatibility (DIR=>MYDIR)
+
+commit 8e69e6f1f00d560f1ecce7f7f753894fe8e77dfb
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 23 20:09:53 2024 +0100
+
+    Kimmy: Add CUSTOM folder
+
+commit 04c21c7fa3c1f37d550716f0b6c0dd61622bb0da
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 23 20:01:34 2024 +0100
+
+    Kimmy: Add feature requests
+
+commit 6a8c3e026c8d34efb97714cd649b54e789e2debc
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Tue Apr 23 17:46:29 2024 +0100
+
+    Kimmy: Add scoreBezel and fix Pi ES compatibility issues
+
+commit c2cdd9f2fc2c8d7b0a8cb85468ecb13a0d2d8d7e
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon Apr 22 22:22:22 2024 +0100
+
+    Kimmy: Add new v4 Framework with Brain Dead 13

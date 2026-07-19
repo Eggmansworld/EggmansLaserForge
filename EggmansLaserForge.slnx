@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ldp.App/Ldp.App.csproj" />
+    <Project Path="src/Ldp.FrameEngine/Ldp.FrameEngine.csproj" />
+    <Project Path="src/Ldp.Project/Ldp.Project.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ldp.EngineProbe/Ldp.EngineProbe.csproj" />
+  </Folder>
+</Solution>

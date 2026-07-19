@@ -1,0 +1,12 @@
+bin/
+obj/
+*.user
+.vs/
+# Generated frame index files during testing
+*.dat
+*.ldpidx
+# Video/audio assets are large and copyrighted - never commit
+*.m2v
+*.ogg
+*.mp4
+*.mkv

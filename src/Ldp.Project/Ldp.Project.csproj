@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Ldp.FrameEngine\Ldp.FrameEngine.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The default community template ships inside the assembly so export
+         can never fall back to a bare generated script. -->
+    <EmbeddedResource Include="Templates\default.template.singe" LogicalName="Ldp.Project.default.template.singe" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,40 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.TestHypseusDialog"
+        Title="Test in Hypseus Singe"
+        Width="720" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource BgWindow}">
+    <StackPanel Margin="22" Spacing="14">
+
+        <TextBlock Text="Run your game in Hypseus Singe" FontSize="18" FontWeight="Bold"
+                   Foreground="{DynamicResource FgPrimary}"/>
+
+        <TextBlock Name="WarnText" Foreground="{DynamicResource AccentAmber}" FontSize="12"
+                   TextWrapping="Wrap" IsVisible="False"/>
+
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                   Text="Your script and frame file were written into the game folder. Click Run Now to launch the emulator, or copy the command to run it yourself from the Hypseus folder:"/>
+
+        <Border Background="{DynamicResource BgCanvas}" CornerRadius="6" Padding="12">
+            <TextBox Name="CommandBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                     FontFamily="Consolas,monospace" FontSize="12" BorderThickness="0"
+                     Background="Transparent"/>
+        </Border>
+
+        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                   Text="Hypseus closes on error with no message. If the game doesn't start, open the log to see what went wrong."/>
+
+        <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Name="RunButton" Content="▶ Run Now" Click="OnRun"/>
+            <Button Content="Copy Command" Click="OnCopy"/>
+            <Button Content="Open Log Folder" Click="OnOpenLogFolder"/>
+            <Button Content="Open hypseus.log" Click="OnOpenLog"/>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Close" Click="OnClose"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

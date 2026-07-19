@@ -1,0 +1,17 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Ldp.App.GameSetupView">
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="{DynamicResource BgBar}" Padding="10,6">
+            <DockPanel>
+                <TextBlock Text="GAME SETUP — framework slots the exporter fills (attract videos, menus, system videos)"
+                           Foreground="{DynamicResource FgMuted}" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock DockPanel.Dock="Right" Name="SummaryText" HorizontalAlignment="Right"
+                           Foreground="{DynamicResource FgFaint}" FontSize="12" VerticalAlignment="Center" Text=""/>
+            </DockPanel>
+        </Border>
+        <ScrollViewer Background="{DynamicResource BgCanvas}">
+            <StackPanel Name="SlotsPanel" Margin="16" Spacing="4" MaxWidth="820" HorizontalAlignment="Left"/>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>
