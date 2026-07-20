@@ -12,6 +12,10 @@ public sealed class AppSettings
     /// <summary>Last Hypseus Singe install root chosen, to prefill the New Project wizard.</summary>
     public string? HypseusRoot { get; set; }
 
+    /// <summary>Path to ffmpeg.exe (from an extracted gyan.dev full build) used for
+    /// video conversion. Asked for once, then reused.</summary>
+    public string? FfmpegPath { get; set; }
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "EggmansLaserdiscPublisher", "settings.json");

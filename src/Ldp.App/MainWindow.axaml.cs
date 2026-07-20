@@ -771,16 +771,38 @@ public partial class MainWindow : Window
         if (_project == null || _projectPath == null) return;
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Add MPEG-2 elementary stream",
+            Title = "Add video (already .m2v, or a source to convert)",
             FileTypeFilter =
             [
-                new FilePickerFileType("MPEG-2 video (*.m2v)") { Patterns = ["*.m2v", "*.mpv"] },
+                new FilePickerFileType("Video (m2v, mkv, mp4, webm)")
+                    { Patterns = ["*.m2v", "*.mpv", "*.mkv", "*.mp4", "*.webm", "*.mov", "*.m4v", "*.avi", "*.ts"] },
+                new FilePickerFileType("MPEG-2 ready (*.m2v)") { Patterns = ["*.m2v", "*.mpv"] },
                 new FilePickerFileType("All files") { Patterns = ["*"] },
             ],
         });
         string? path = files.Count == 1 ? files[0].TryGetLocalPath() : null;
         if (path == null) return;
 
+        // A non-.m2v source (mkv/mp4/webm) can't be played by Hypseus — route it
+        // through conversion first, then add the resulting .m2v.
+        if (IsM2vStream(path))
+            await TryAddVideoAsync(path);
+        else
+            await ConvertThenAddAsync([path]);
+    }
+
+    private static bool IsM2vStream(string path)
+    {
+        string ext = Path.GetExtension(path);
+        return ext.Equals(".m2v", StringComparison.OrdinalIgnoreCase)
+            || ext.Equals(".mpv", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Opens (indexing if needed) a .m2v and adds it as a project video,
+    /// enforcing the one-frame-rate rule. Returns true on success.</summary>
+    private async Task<bool> TryAddVideoAsync(string path)
+    {
+        if (_project == null || _projectPath == null) return false;
         try
         {
             FrameEngine engine = await OpenEngineAsync(path);
@@ -795,7 +817,7 @@ public partial class MainWindow : Window
                     engine.Dispose();
                     StatusText.Text = $"Can't add {Path.GetFileName(path)}: it is {engine.Fps:F3} fps but the " +
                                       $"project's videos are {existing:F3} fps. All videos must share one frame rate.";
-                    return;
+                    return false;
                 }
             }
 
@@ -819,11 +841,42 @@ public partial class MainWindow : Window
             VideoList.SelectedIndex = index;
             _suppressVideoSelection = false;
             await ActivateVideoAsync(index);
+            return true;
         }
         catch (Exception ex)
         {
             StatusText.Text = "Failed to add video: " + ex.Message;
+            return false;
         }
+    }
+
+    private async void OnConvertVideo(object? sender, RoutedEventArgs e) => await ConvertThenAddAsync(null);
+
+    /// <summary>Opens the conversion dialog (optionally seeded with source files) and,
+    /// if the user asked, adds the produced .m2v files to the project.</summary>
+    private async Task ConvertThenAddAsync(IReadOnlyList<string>? seedFiles)
+    {
+        bool projectOpen = _project != null && _projectPath != null;
+        var dialog = new ConvertVideoDialog(_settings, projectOpen, seedFiles);
+        await dialog.ShowDialog(this);
+
+        if (dialog.ProducedM2v.Count == 0) return;
+
+        if (!projectOpen || !dialog.AddToProject)
+        {
+            StatusText.Text = $"Converted {dialog.ProducedM2v.Count} video(s) to .m2v" +
+                              (projectOpen ? " (not added to the project)." : ".");
+            return;
+        }
+
+        int added = 0;
+        foreach (string m2v in dialog.ProducedM2v)
+            if (File.Exists(m2v) && await TryAddVideoAsync(m2v)) added++;
+
+        int skipped = dialog.ProducedM2v.Count - added;
+        StatusText.Text = added > 0
+            ? $"Converted and added {added} video(s)" + (skipped > 0 ? $" — {skipped} skipped (see log)." : ".")
+            : "Converted, but no videos were added (see log for why).";
     }
 
     private async void OnVideoSelected(object? sender, SelectionChangedEventArgs e)

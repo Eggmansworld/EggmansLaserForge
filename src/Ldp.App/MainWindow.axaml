@@ -26,6 +26,9 @@
                             <Separator/>
                             <MenuItem Name="TestHypseusButton" Header="▶ Test in Hypseus…" IsEnabled="False" Click="OnTestInHypseus"/>
                         </MenuItem>
+                        <MenuItem Header="_Tools" Padding="10,6">
+                            <MenuItem Name="ConvertVideoButton" Header="🎞 Convert Video → M2V…" Click="OnConvertVideo"/>
+                        </MenuItem>
                         <MenuItem Header="_Help" Padding="10,6">
                             <MenuItem Header="About Eggman's LaserForge…" Click="OnAbout"/>
                         </MenuItem>

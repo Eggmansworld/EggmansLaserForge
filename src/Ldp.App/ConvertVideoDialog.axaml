@@ -1,0 +1,192 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:app="using:Ldp.App"
+        x:Class="Ldp.App.ConvertVideoDialog"
+        Title="Convert Video → M2V"
+        Width="800" Height="820" MinWidth="680" MinHeight="560"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgWindow}">
+
+    <DockPanel Margin="0">
+
+        <!-- Pinned bottom: progress + actions -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource BgBar}"
+                BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0" Padding="18,12">
+            <StackPanel Spacing="8">
+                <StackPanel Name="ProgressArea" Spacing="4" IsVisible="False">
+                    <ProgressBar Name="ConvProgress" Minimum="0" Maximum="1" Height="8"/>
+                    <TextBlock Name="ProgressStatus" Foreground="{DynamicResource FgPrimary}" FontSize="13" Text=""/>
+                    <TextBlock Name="ProgressDetail" Foreground="{DynamicResource FgFaint}"
+                               FontFamily="Consolas,monospace" FontSize="11" Text="" TextTrimming="CharacterEllipsis"/>
+                    <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="8" Height="120">
+                        <ScrollViewer Name="OutputScroll">
+                            <TextBlock Name="OutputLog" Foreground="{DynamicResource FgMuted}"
+                                       FontFamily="Consolas,monospace" FontSize="11" TextWrapping="Wrap" Text=""/>
+                        </ScrollViewer>
+                    </Border>
+                </StackPanel>
+
+                <DockPanel>
+                    <CheckBox Name="AutoAddCheck" DockPanel.Dock="Left" VerticalAlignment="Center"
+                              Content="Add finished videos to the project"/>
+                    <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                        <Button Name="ConvertButton" Content="▶ Convert" IsEnabled="False" Click="OnConvert"/>
+                        <Button Name="CloseButton" Content="Close" Click="OnClose"/>
+                    </StackPanel>
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Scrollable options -->
+        <ScrollViewer>
+            <StackPanel Margin="18" Spacing="14">
+
+                <TextBlock Text="Convert a video to Hypseus M2V + OGG" FontSize="18" FontWeight="Bold"
+                           Foreground="{DynamicResource FgPrimary}"/>
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13"
+                           Text="Turn an mkv / mp4 / webm into the MPEG-2 elementary stream (.m2v) Hypseus plays, plus a matching Vorbis .ogg. Outputs are written next to each source file, using the same name."/>
+
+                <!-- FFMPEG -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="FFMPEG" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <TextBlock Name="FfmpegStatus" TextWrapping="Wrap" FontSize="13"
+                                   Foreground="{DynamicResource AccentAmber}" Text="Locate ffmpeg.exe to begin."/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Name="LocateFfmpegButton" Content="Locate ffmpeg.exe…" Click="OnLocateFfmpeg"/>
+                            <TextBlock Name="FfmpegDownloadLink" VerticalAlignment="Center" FontSize="13"
+                                       Foreground="{DynamicResource Accent}" Cursor="Hand"
+                                       Text="Download the full build (gyan.dev)" PointerPressed="OnOpenFfmpegDownload"/>
+                        </StackPanel>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                                   Text="One-time setup: download 'ffmpeg-git-full.7z' (the full build, not essentials), extract it anywhere, and point at ffmpeg.exe inside its bin\ folder. The path is remembered."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- SOURCE VIDEOS -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="SOURCE VIDEOS  (mkv, mp4, webm)" Foreground="{DynamicResource FgFaint}"
+                                   FontSize="11" FontWeight="Bold"/>
+                        <ListBox Name="SourceList" Height="110" Background="{DynamicResource BgCanvas}"
+                                 SelectionChanged="OnSourceSelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="app:ConvertSourceItem">
+                                    <TextBlock Text="{Binding Name}" FontSize="13" Margin="2"
+                                               ToolTip.Tip="{Binding Path}"/>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Name="AddFilesButton" Content="＋ Add files…" Click="OnAddFiles"/>
+                            <Button Name="AddFolderButton" Content="＋ Add folder…" Click="OnAddFolder"/>
+                            <Button Name="RemoveSourceButton" Content="Remove" IsEnabled="False" Click="OnRemoveSource"/>
+                            <Button Name="ClearSourcesButton" Content="Clear" IsEnabled="False" Click="OnClearSources"/>
+                            <TextBlock Name="SourceCount" VerticalAlignment="Center" FontSize="12"
+                                       Foreground="{DynamicResource FgFaint}" Text=""/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- VIDEO -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="VIDEO QUALITY" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <RadioButton Name="VqHighest" GroupName="Vq" IsChecked="True" Click="OnOptionChanged">
+                            <StackPanel>
+                                <TextBlock Text="Highest quality — working master" FontSize="13" Foreground="{DynamicResource FgPrimary}"/>
+                                <TextBlock Text="No quality loss, largest files. Best while you scrub and analyse the video.  (-qscale:v 1)"
+                                           FontSize="11" Foreground="{DynamicResource FgFaint}"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton Name="VqBalanced" GroupName="Vq" Click="OnOptionChanged">
+                            <StackPanel>
+                                <TextBlock Text="Balanced — release" FontSize="13" Foreground="{DynamicResource FgPrimary}"/>
+                                <TextBlock Text="Much smaller, still excellent. Good for the finished game.  (-qscale:v 4 -b:v 6000k)"
+                                           FontSize="11" Foreground="{DynamicResource FgFaint}"/>
+                            </StackPanel>
+                        </RadioButton>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <RadioButton Name="VqCustom" GroupName="Vq" VerticalAlignment="Center"
+                                         Content="Custom bitrate" Click="OnOptionChanged"/>
+                            <NumericUpDown Name="VideoBitrateBox" Width="130" Value="6000" Minimum="500" Maximum="50000"
+                                           Increment="500" FormatString="0" IsEnabled="False" ValueChanged="OnOptionValueChanged"/>
+                            <TextBlock Text="kbps" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}" FontSize="12"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- RESOLUTION -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="RESOLUTION" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <CheckBox Name="ResizeCheck" Click="OnResizeToggled"
+                                  Content="Resize output  (usually leave off — Hypseus scales to the window itself)"/>
+                        <StackPanel Name="ResizePanel" Orientation="Horizontal" Spacing="8" IsVisible="False" Margin="22,0,0,0">
+                            <ComboBox Name="ResPreset" Width="150" SelectionChanged="OnResPresetChanged">
+                                <ComboBoxItem Content="854 × 480"/>
+                                <ComboBoxItem Content="1280 × 720" IsSelected="True"/>
+                                <ComboBoxItem Content="1920 × 1080"/>
+                            </ComboBox>
+                            <NumericUpDown Name="WidthBox" Width="110" Value="1280" Minimum="16" Maximum="4096"
+                                           Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                            <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"/>
+                            <NumericUpDown Name="HeightBox" Width="110" Value="720" Minimum="16" Maximum="4096"
+                                           Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- AUDIO -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="AUDIO" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <CheckBox Name="AudioCheck" IsChecked="True" Click="OnAudioToggled"
+                                  Content="Also create a matching .ogg audio track"/>
+                        <StackPanel Name="AudioPanel" Spacing="6" Margin="22,2,0,0">
+                            <RadioButton Name="AqStandard" GroupName="Aq" IsChecked="True" Click="OnOptionChanged"
+                                         Content="Standard — 44.1 kHz, 160 kbps"/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <RadioButton Name="AqCustom" GroupName="Aq" VerticalAlignment="Center"
+                                             Content="Custom bitrate" Click="OnOptionChanged"/>
+                                <NumericUpDown Name="AudioBitrateBox" Width="120" Value="160" Minimum="64" Maximum="320"
+                                               Increment="16" FormatString="0" IsEnabled="False" ValueChanged="OnOptionValueChanged"/>
+                                <TextBlock Text="kbps (max 320)" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}" FontSize="12"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,2,0,0">
+                                <TextBlock Text="Audio sync offset" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                                <NumericUpDown Name="OffsetBox" Width="110" Value="110" Minimum="0" Maximum="2000"
+                                               Increment="10" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                                <TextBlock Text="ms — trims the start of the audio to line up with Hypseus (author default: 110)"
+                                           VerticalAlignment="Center" Foreground="{DynamicResource FgFaint}" FontSize="12"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- COMMAND PREVIEW -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="COMMAND" Foreground="{DynamicResource FgFaint}"
+                                       FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right" Name="CopyButton" Content="Copy command" HorizontalAlignment="Right"
+                                    FontSize="12" Padding="8,3" Click="OnCopyCommand"/>
+                            <TextBlock Name="CommandNote" HorizontalAlignment="Right" Margin="0,0,10,0"
+                                       VerticalAlignment="Center" Foreground="{DynamicResource FgFaint}" FontSize="11" Text=""/>
+                        </DockPanel>
+                        <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="10">
+                            <TextBox Name="CommandBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                                     FontFamily="Consolas,monospace" FontSize="12" BorderThickness="0"
+                                     Background="Transparent" MinHeight="64"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                           Text="Tip: once created, .m2v files don't scrub or fast-forward correctly in VLC or Media Player Classic — they lose sync. Preview them here in LaserForge, which is built to handle them."/>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>
