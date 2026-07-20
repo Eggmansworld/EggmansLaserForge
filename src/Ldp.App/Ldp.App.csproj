@@ -8,7 +8,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Product>Eggman's LaserForge</Product>
     <AssemblyTitle>Eggman's LaserForge</AssemblyTitle>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Company>Eggmansworld</Company>
   </PropertyGroup>
 
