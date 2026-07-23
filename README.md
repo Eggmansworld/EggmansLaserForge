@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.1-win-x64.zip`**.
+   and download the file named **`EggmansLaserForge-0.1.2-win-x64.zip`**.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`Ldp.App.exe`**.

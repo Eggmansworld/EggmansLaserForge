@@ -3,7 +3,7 @@
         xmlns:app="using:Ldp.App"
         x:Class="Ldp.App.ConvertVideoDialog"
         Title="Convert Video → M2V"
-        Width="800" Height="820" MinWidth="680" MinHeight="560"
+        Width="820" Height="860" MinWidth="700" MinHeight="560"
         WindowStartupLocation="CenterOwner"
         Background="{DynamicResource BgWindow}">
 
@@ -15,13 +15,14 @@
             <StackPanel Spacing="8">
                 <StackPanel Name="ProgressArea" Spacing="4" IsVisible="False">
                     <ProgressBar Name="ConvProgress" Minimum="0" Maximum="1" Height="8"/>
-                    <TextBlock Name="ProgressStatus" Foreground="{DynamicResource FgPrimary}" FontSize="13" Text=""/>
-                    <TextBlock Name="ProgressDetail" Foreground="{DynamicResource FgFaint}"
-                               FontFamily="Consolas,monospace" FontSize="11" Text="" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Name="ProgressStatus" Foreground="{DynamicResource FgPrimary}"
+                               FontSize="14" FontWeight="SemiBold" Text=""/>
+                    <TextBlock Name="ProgressDetail" Foreground="{DynamicResource FgPrimary}"
+                               FontFamily="Consolas,monospace" FontSize="12" Text="" TextTrimming="CharacterEllipsis"/>
                     <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="8" Height="120">
                         <ScrollViewer Name="OutputScroll">
                             <TextBlock Name="OutputLog" Foreground="{DynamicResource FgMuted}"
-                                       FontFamily="Consolas,monospace" FontSize="11" TextWrapping="Wrap" Text=""/>
+                                       FontFamily="Consolas,monospace" FontSize="12" TextWrapping="Wrap" Text=""/>
                         </ScrollViewer>
                     </Border>
                 </StackPanel>
@@ -68,12 +69,17 @@
                     <StackPanel Spacing="8">
                         <TextBlock Text="SOURCE VIDEOS  (mkv, mp4, webm)" Foreground="{DynamicResource FgFaint}"
                                    FontSize="11" FontWeight="Bold"/>
-                        <ListBox Name="SourceList" Height="110" Background="{DynamicResource BgCanvas}"
+                        <ListBox Name="SourceList" Height="120" Background="{DynamicResource BgCanvas}"
                                  SelectionChanged="OnSourceSelectionChanged">
                             <ListBox.ItemTemplate>
                                 <DataTemplate x:DataType="app:ConvertSourceItem">
-                                    <TextBlock Text="{Binding Name}" FontSize="13" Margin="2"
-                                               ToolTip.Tip="{Binding Path}"/>
+                                    <StackPanel Margin="2">
+                                        <TextBlock Text="{Binding Name}" FontSize="13" ToolTip.Tip="{Binding Path}"
+                                                   Foreground="{DynamicResource FgPrimary}" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Info}" FontSize="11"
+                                                   Foreground="{DynamicResource FgMuted}"
+                                                   FontFamily="Consolas,monospace" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
@@ -83,8 +89,11 @@
                             <Button Name="RemoveSourceButton" Content="Remove" IsEnabled="False" Click="OnRemoveSource"/>
                             <Button Name="ClearSourcesButton" Content="Clear" IsEnabled="False" Click="OnClearSources"/>
                             <TextBlock Name="SourceCount" VerticalAlignment="Center" FontSize="12"
-                                       Foreground="{DynamicResource FgFaint}" Text=""/>
+                                       Foreground="{DynamicResource FgMuted}" Text=""/>
                         </StackPanel>
+                        <TextBlock Name="PerFileNote" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource FgMuted}"
+                                   Text="Audio track and resolution are per-file: highlight a file above to set its own choices."/>
                     </StackPanel>
                 </Border>
 
@@ -96,14 +105,14 @@
                             <StackPanel>
                                 <TextBlock Text="Highest quality — working master" FontSize="13" Foreground="{DynamicResource FgPrimary}"/>
                                 <TextBlock Text="No quality loss, largest files. Best while you scrub and analyse the video.  (-qscale:v 1)"
-                                           FontSize="11" Foreground="{DynamicResource FgFaint}"/>
+                                           FontSize="11" Foreground="{DynamicResource FgMuted}"/>
                             </StackPanel>
                         </RadioButton>
                         <RadioButton Name="VqBalanced" GroupName="Vq" Click="OnOptionChanged">
                             <StackPanel>
                                 <TextBlock Text="Balanced — release" FontSize="13" Foreground="{DynamicResource FgPrimary}"/>
                                 <TextBlock Text="Much smaller, still excellent. Good for the finished game.  (-qscale:v 4 -b:v 6000k)"
-                                           FontSize="11" Foreground="{DynamicResource FgFaint}"/>
+                                           FontSize="11" Foreground="{DynamicResource FgMuted}"/>
                             </StackPanel>
                         </RadioButton>
                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -116,34 +125,61 @@
                     </StackPanel>
                 </Border>
 
-                <!-- RESOLUTION -->
+                <!-- RESOLUTION (per selected file) -->
                 <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
                     <StackPanel Spacing="8">
-                        <TextBlock Text="RESOLUTION" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
-                        <CheckBox Name="ResizeCheck" Click="OnResizeToggled"
-                                  Content="Resize output  (usually leave off — Hypseus scales to the window itself)"/>
-                        <StackPanel Name="ResizePanel" Orientation="Horizontal" Spacing="8" IsVisible="False" Margin="22,0,0,0">
-                            <ComboBox Name="ResPreset" Width="150" SelectionChanged="OnResPresetChanged">
-                                <ComboBoxItem Content="854 × 480"/>
-                                <ComboBoxItem Content="1280 × 720" IsSelected="True"/>
-                                <ComboBoxItem Content="1920 × 1080"/>
-                            </ComboBox>
-                            <NumericUpDown Name="WidthBox" Width="110" Value="1280" Minimum="16" Maximum="4096"
-                                           Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
-                            <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"/>
-                            <NumericUpDown Name="HeightBox" Width="110" Value="720" Minimum="16" Maximum="4096"
-                                           Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                        <DockPanel>
+                            <TextBlock Text="RESOLUTION" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                                       FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Name="ResFileTag" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource FgMuted}" FontSize="11"
+                                       VerticalAlignment="Center" Text=""/>
+                        </DockPanel>
+                        <TextBlock Name="ResWarning" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource AccentAmber}"
+                                   Text=""/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <ComboBox Name="ResCombo" MinWidth="250" SelectionChanged="OnResChoiceChanged"/>
+                            <StackPanel Name="ResCustomPanel" Orientation="Horizontal" Spacing="8" IsVisible="False">
+                                <NumericUpDown Name="WidthBox" Width="110" Value="1280" Minimum="16" Maximum="4096"
+                                               Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                                <TextBlock Text="×" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"/>
+                                <NumericUpDown Name="HeightBox" Width="110" Value="720" Minimum="16" Maximum="4096"
+                                               Increment="2" FormatString="0" ValueChanged="OnOptionValueChanged"/>
+                            </StackPanel>
                         </StackPanel>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                                   Text="Downscale presets keep the source's aspect ratio. Sources at 1080p or below are best left at 'Keep original' — Hypseus scales the picture to the window itself."/>
                     </StackPanel>
                 </Border>
 
                 <!-- AUDIO -->
                 <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
                     <StackPanel Spacing="6">
-                        <TextBlock Text="AUDIO" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <DockPanel>
+                            <TextBlock Text="AUDIO" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                                       FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Name="TrackFileTag" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource FgMuted}" FontSize="11"
+                                       VerticalAlignment="Center" Text=""/>
+                        </DockPanel>
                         <CheckBox Name="AudioCheck" IsChecked="True" Click="OnAudioToggled"
                                   Content="Also create a matching .ogg audio track"/>
                         <StackPanel Name="AudioPanel" Spacing="6" Margin="22,2,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock Text="Track" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                                <ComboBox Name="TrackCombo" MinWidth="440" MaxWidth="520"
+                                          SelectionChanged="OnTrackChanged"/>
+                            </StackPanel>
+                            <TextBlock Name="TrackHint" TextWrapping="Wrap" FontSize="12"
+                                       Foreground="{DynamicResource FgMuted}"
+                                       Text="Locate ffmpeg and add a file to list its audio tracks."/>
+                            <CheckBox Name="DownmixCheck" IsChecked="True" Click="OnOptionChanged"
+                                      Content="Downmix to stereo (recommended)"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Margin="26,0,0,0"
+                                       Foreground="{DynamicResource FgFaint}"
+                                       Text="Singe games play stereo. Keeping 5.1/7.1 needs much higher bitrates and can fail to encode."/>
                             <RadioButton Name="AqStandard" GroupName="Aq" IsChecked="True" Click="OnOptionChanged"
                                          Content="Standard — 44.1 kHz, 160 kbps"/>
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -159,7 +195,7 @@
                                 <NumericUpDown Name="OffsetBox" Width="110" Value="110" Minimum="0" Maximum="2000"
                                                Increment="10" FormatString="0" ValueChanged="OnOptionValueChanged"/>
                                 <TextBlock Text="ms — trims the start of the audio to line up with Hypseus (author default: 110)"
-                                           VerticalAlignment="Center" Foreground="{DynamicResource FgFaint}" FontSize="12"/>
+                                           VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}" FontSize="12"/>
                             </StackPanel>
                         </StackPanel>
                     </StackPanel>
@@ -174,7 +210,7 @@
                             <Button DockPanel.Dock="Right" Name="CopyButton" Content="Copy command" HorizontalAlignment="Right"
                                     FontSize="12" Padding="8,3" Click="OnCopyCommand"/>
                             <TextBlock Name="CommandNote" HorizontalAlignment="Right" Margin="0,0,10,0"
-                                       VerticalAlignment="Center" Foreground="{DynamicResource FgFaint}" FontSize="11" Text=""/>
+                                       VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}" FontSize="11" Text=""/>
                         </DockPanel>
                         <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="10">
                             <TextBox Name="CommandBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
@@ -184,7 +220,7 @@
                     </StackPanel>
                 </Border>
 
-                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="12"
                            Text="Tip: once created, .m2v files don't scrub or fast-forward correctly in VLC or Media Player Classic — they lose sync. Preview them here in LaserForge, which is built to handle them."/>
             </StackPanel>
         </ScrollViewer>

@@ -9,6 +9,7 @@ using Ldp.Project;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -17,18 +18,67 @@ using System.Threading.Tasks;
 
 namespace Ldp.App;
 
-/// <summary>One source video queued for conversion.</summary>
-public sealed class ConvertSourceItem(string path)
+/// <summary>One source video queued for conversion, with its probed stream info and
+/// its own per-file choices (which audio track to convert, downscale or not).</summary>
+public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
 {
     public string Path { get; } = path;
     public string Name => System.IO.Path.GetFileName(Path);
+
+    /// <summary>Stream layout read via <c>ffmpeg -i</c>; null until probed (or unreadable).</summary>
+    public MediaInfo? Media { get; private set; }
+    public bool ProbeStarted { get; set; }
+    public bool Probed { get; private set; }
+
+    /// <summary>Audio stream to convert (<c>-map 0:a:{n}</c>).</summary>
+    public int AudioTrack { get; set; }
+
+    /// <summary>Output size; null = keep the source resolution.</summary>
+    public (int Width, int Height)? Scale { get; set; }
+
+    /// <summary>True when the user picked "Custom…" rather than a preset.</summary>
+    public bool CustomScale { get; set; }
+
+    private string _info = "";
+    public string Info
+    {
+        get => _info;
+        set { if (_info != value) { _info = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Info))); } }
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public void SetMedia(MediaInfo? media)
+    {
+        Media = media;
+        Probed = true;
+        if (media == null)
+        {
+            Info = "couldn't read streams — the first audio track will be used";
+            return;
+        }
+        AudioTrack = Math.Max(0, media.DefaultAudioTrack);
+
+        // A >1080p master defaults to the largest legal downscale (usually
+        // 1920×1080): Hypseus is not designed for video above 1080p.
+        if (media.ExceedsHypseusLimit && Scale == null && !CustomScale &&
+            MediaInfo.DownscalePresets(media.Width, media.Height) is { Count: > 0 } presets)
+            Scale = presets[0];
+
+        string fps = media.Fps > 0 ? $" · {media.Fps:0.##} fps" : "";
+        string tracks = $" · {media.AudioTracks.Count} audio track{(media.AudioTracks.Count == 1 ? "" : "s")}";
+        string warn = media.ExceedsHypseusLimit ? " · above 1080p — downscale recommended" : "";
+        Info = $"{media.Width}×{media.Height}{fps}{tracks}{warn}";
+    }
 }
 
 /// <summary>
 /// Converts source videos (mkv/mp4/webm, …) into Hypseus-ready <c>.m2v</c> (+ <c>.ogg</c>)
-/// with an external FFmpeg. Shows the exact command, runs it with live progress, and
-/// remembers the ffmpeg.exe path. On close, <see cref="ProducedM2v"/> lists the .m2v files
-/// created and <see cref="AddToProject"/> says whether the caller should add them.
+/// with an external FFmpeg. Each file is probed so the user can pick the audio track
+/// (language/format) and a downscale for >1080p masters. Shows the exact command,
+/// runs it with live progress, and remembers the ffmpeg.exe path. On close,
+/// <see cref="ProducedM2v"/> lists the .m2v files created and <see cref="AddToProject"/>
+/// says whether the caller should add them.
 /// </summary>
 public partial class ConvertVideoDialog : Window
 {
@@ -37,6 +87,7 @@ public partial class ConvertVideoDialog : Window
     private string? _ffmpeg;
     private CancellationTokenSource? _cts;
     private bool _converting;
+    private bool _updatingPerFile;
 
     /// <summary>Full paths of the .m2v files successfully created this session.</summary>
     public List<string> ProducedM2v { get; } = [];
@@ -68,9 +119,12 @@ public partial class ConvertVideoDialog : Window
             foreach (string f in seedFiles) AddSource(f);
 
         UpdateSourceUi();
+        RefreshPerFileUi();
         UpdateCommandPreview();
         UpdateConvertEnabled();
     }
+
+    private ConvertSourceItem? Sel => SourceList.SelectedItem as ConvertSourceItem;
 
     // ---------- FFmpeg location ----------
 
@@ -84,6 +138,7 @@ public partial class ConvertVideoDialog : Window
             _settings.FfmpegPath = path;
             _settings.Save();
         }
+        foreach (ConvertSourceItem item in _sources) ProbeItem(item);
     }
 
     private async void OnLocateFfmpeg(object? sender, RoutedEventArgs e)
@@ -119,7 +174,7 @@ public partial class ConvertVideoDialog : Window
         catch (Exception) { }
     }
 
-    // ---------- Source list ----------
+    // ---------- Source list + probing ----------
 
     private async void OnAddFiles(object? sender, RoutedEventArgs e)
     {
@@ -136,9 +191,7 @@ public partial class ConvertVideoDialog : Window
         });
         foreach (IStorageFile f in files)
             if (f.TryGetLocalPath() is { } p) AddSource(p);
-        UpdateSourceUi();
-        UpdateCommandPreview();
-        UpdateConvertEnabled();
+        AfterSourcesChanged();
     }
 
     private async void OnAddFolder(object? sender, RoutedEventArgs e)
@@ -155,41 +208,196 @@ public partial class ConvertVideoDialog : Window
                 if (FfmpegCommand.IsConvertibleInput(p)) AddSource(p);
         }
         catch (Exception) { /* unreadable folder — nothing added */ }
-        UpdateSourceUi();
-        UpdateCommandPreview();
-        UpdateConvertEnabled();
+        AfterSourcesChanged();
     }
 
     private void AddSource(string path)
     {
         if (_sources.Any(s => string.Equals(s.Path, path, StringComparison.OrdinalIgnoreCase))) return;
-        _sources.Add(new ConvertSourceItem(path));
+        var item = new ConvertSourceItem(path)
+        {
+            Info = _ffmpeg == null ? "locate ffmpeg to read streams" : "reading streams…",
+        };
+        _sources.Add(item);
+        if (SourceList.SelectedIndex < 0) SourceList.SelectedIndex = 0;
+        ProbeItem(item);
+    }
+
+    /// <summary>Reads the file's stream layout in the background; refreshes the
+    /// per-file pickers when it lands on the currently highlighted file.</summary>
+    private async void ProbeItem(ConvertSourceItem item)
+    {
+        if (_ffmpeg == null || item.ProbeStarted) return;
+        item.ProbeStarted = true;
+        item.Info = "reading streams…";
+        MediaInfo? media = await FfmpegTool.ProbeAsync(_ffmpeg, item.Path);
+        item.SetMedia(media);
+        if (Sel == item) RefreshPerFileUi();
+        UpdateCommandPreview();
+    }
+
+    private void AfterSourcesChanged()
+    {
+        UpdateSourceUi();
+        RefreshPerFileUi();
+        UpdateCommandPreview();
+        UpdateConvertEnabled();
     }
 
     private void OnRemoveSource(object? sender, RoutedEventArgs e)
     {
-        if (SourceList.SelectedItem is ConvertSourceItem s) _sources.Remove(s);
-        UpdateSourceUi();
-        UpdateCommandPreview();
-        UpdateConvertEnabled();
+        if (Sel is { } s) _sources.Remove(s);
+        AfterSourcesChanged();
     }
 
     private void OnClearSources(object? sender, RoutedEventArgs e)
     {
         _sources.Clear();
-        UpdateSourceUi();
-        UpdateCommandPreview();
-        UpdateConvertEnabled();
+        AfterSourcesChanged();
     }
 
-    private void OnSourceSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
-        RemoveSourceButton.IsEnabled = !_converting && SourceList.SelectedItem != null;
+    private void OnSourceSelectionChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        RemoveSourceButton.IsEnabled = !_converting && Sel != null;
+        RefreshPerFileUi();
+        UpdateCommandPreview();
+    }
 
     private void UpdateSourceUi()
     {
         SourceCount.Text = _sources.Count == 0 ? "" : $"{_sources.Count} file(s)";
+        PerFileNote.IsVisible = _sources.Count > 1;
         ClearSourcesButton.IsEnabled = !_converting && _sources.Count > 0;
-        RemoveSourceButton.IsEnabled = !_converting && SourceList.SelectedItem != null;
+        RemoveSourceButton.IsEnabled = !_converting && Sel != null;
+    }
+
+    // ---------- Per-file pickers (audio track + resolution) ----------
+
+    private void RefreshPerFileUi()
+    {
+        _updatingPerFile = true;
+        try
+        {
+            ConvertSourceItem? item = Sel ?? _sources.FirstOrDefault();
+            string tag = item != null && _sources.Count > 1 ? "for: " + item.Name : "";
+            ResFileTag.Text = tag;
+            TrackFileTag.Text = tag;
+
+            // Audio track combo.
+            if (item?.Media is { AudioTracks.Count: > 0 } media)
+            {
+                TrackCombo.ItemsSource = media.AudioTracks.Select(t => t.Display()).ToList();
+                TrackCombo.SelectedIndex = Math.Clamp(item.AudioTrack, 0, media.AudioTracks.Count - 1);
+                TrackCombo.IsEnabled = !_converting;
+                TrackHint.Text = media.AudioTracks.Count == 1
+                    ? "1 audio track found."
+                    : $"{media.AudioTracks.Count} audio tracks found — pick the language and format that fit the game.";
+            }
+            else
+            {
+                TrackCombo.ItemsSource = null;
+                TrackCombo.IsEnabled = false;
+                TrackHint.Text = item == null ? "Locate ffmpeg and add a file to list its audio tracks."
+                    : !item.Probed ? (_ffmpeg == null ? "Locate ffmpeg above to read this file's audio tracks." : "Reading streams…")
+                    : item.Media == null ? "Couldn't read this file's streams — the first audio track will be used."
+                    : "This file has no audio streams.";
+            }
+
+            // Resolution combo: Keep original / aspect-kept presets / Custom.
+            var choices = new List<string>();
+            IReadOnlyList<(int Width, int Height)> presets = [];
+            if (item?.Media is { HasVideo: true } m)
+            {
+                choices.Add($"Keep original ({m.Width}×{m.Height})");
+                presets = MediaInfo.DownscalePresets(m.Width, m.Height);
+                choices.AddRange(presets.Select(p => $"{p.Width} × {p.Height}"));
+            }
+            else
+            {
+                choices.Add("Keep original");
+            }
+            choices.Add("Custom…");
+            ResCombo.ItemsSource = choices;
+            ResCombo.IsEnabled = item != null && !_converting;
+
+            int selected = 0;
+            if (item != null)
+            {
+                if (item.CustomScale) selected = choices.Count - 1;
+                else if (item.Scale is { } sc)
+                {
+                    int at = -1;
+                    for (int i = 0; i < presets.Count; i++)
+                        if (presets[i] == sc) { at = i; break; }
+                    if (at >= 0) selected = 1 + at;
+                    else { selected = choices.Count - 1; item.CustomScale = true; }
+                }
+            }
+            ResCombo.SelectedIndex = selected;
+            ResCustomPanel.IsVisible = item != null && item.CustomScale;
+            if (item is { CustomScale: true, Scale: { } custom })
+            {
+                WidthBox.Value = custom.Width;
+                HeightBox.Value = custom.Height;
+            }
+
+            if (item?.Media is { ExceedsHypseusLimit: true } big)
+            {
+                ResWarning.Text = $"This source is {big.Width}×{big.Height} — Hypseus Singe is not designed for video " +
+                                  "above 1920×1080 (playback gets too CPU-heavy). A 1080p downscale is pre-selected; " +
+                                  "pick a smaller size if the game targets a low-power device.";
+                ResWarning.IsVisible = true;
+            }
+            else
+            {
+                ResWarning.IsVisible = false;
+            }
+        }
+        finally
+        {
+            _updatingPerFile = false;
+        }
+    }
+
+    private void OnTrackChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingPerFile) return;
+        if (Sel is { } item && TrackCombo.SelectedIndex >= 0)
+            item.AudioTrack = TrackCombo.SelectedIndex;
+        UpdateCommandPreview();
+    }
+
+    private void OnResChoiceChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_updatingPerFile || Sel is not { } item) return;
+        int index = ResCombo.SelectedIndex;
+        int count = (ResCombo.ItemsSource as List<string>)?.Count ?? 0;
+        if (index < 0 || count == 0) return;
+
+        if (index == count - 1) // Custom…
+        {
+            item.CustomScale = true;
+            item.Scale = ((int)(WidthBox.Value ?? 1280), (int)(HeightBox.Value ?? 720));
+            ResCustomPanel.IsVisible = true;
+        }
+        else if (index == 0) // Keep original
+        {
+            item.CustomScale = false;
+            item.Scale = null;
+            ResCustomPanel.IsVisible = false;
+        }
+        else // preset
+        {
+            IReadOnlyList<(int, int)> presets = item.Media is { HasVideo: true } m
+                ? MediaInfo.DownscalePresets(m.Width, m.Height) : [];
+            if (index - 1 < presets.Count)
+            {
+                item.CustomScale = false;
+                item.Scale = presets[index - 1];
+            }
+            ResCustomPanel.IsVisible = false;
+        }
+        UpdateCommandPreview();
     }
 
     // ---------- Options ----------
@@ -201,11 +409,11 @@ public partial class ConvertVideoDialog : Window
         UpdateCommandPreview();
     }
 
-    private void OnOptionValueChanged(object? sender, NumericUpDownValueChangedEventArgs e) => UpdateCommandPreview();
-
-    private void OnResizeToggled(object? sender, RoutedEventArgs e)
+    private void OnOptionValueChanged(object? sender, NumericUpDownValueChangedEventArgs e)
     {
-        ResizePanel.IsVisible = ResizeCheck.IsChecked == true;
+        if (!_updatingPerFile && Sel is { CustomScale: true } item &&
+            (ReferenceEquals(sender, WidthBox) || ReferenceEquals(sender, HeightBox)))
+            item.Scale = ((int)(WidthBox.Value ?? 1280), (int)(HeightBox.Value ?? 720));
         UpdateCommandPreview();
     }
 
@@ -216,31 +424,16 @@ public partial class ConvertVideoDialog : Window
         UpdateCommandPreview();
     }
 
-    private void OnResPresetChanged(object? sender, SelectionChangedEventArgs e)
-    {
-        (int w, int h)? preset = ResPreset.SelectedIndex switch
-        {
-            0 => (854, 480),
-            1 => (1280, 720),
-            2 => (1920, 1080),
-            _ => null,
-        };
-        if (preset is { } p) { WidthBox.Value = p.w; HeightBox.Value = p.h; }
-        UpdateCommandPreview();
-    }
-
     private ConvertOptions ReadOptions() => new()
     {
         Video = VqHighest.IsChecked == true ? VideoQuality.Highest
               : VqBalanced.IsChecked == true ? VideoQuality.Balanced
               : VideoQuality.Custom,
         CustomVideoBitrateK = (int)(VideoBitrateBox.Value ?? 6000),
-        Resize = ResizeCheck.IsChecked == true,
-        Width = (int)(WidthBox.Value ?? 1280),
-        Height = (int)(HeightBox.Value ?? 720),
         CreateAudio = AudioCheck.IsChecked == true,
         Audio = AqStandard.IsChecked == true ? AudioQuality.Standard : AudioQuality.Custom,
         CustomAudioBitrateK = (int)(AudioBitrateBox.Value ?? 160),
+        DownmixStereo = DownmixCheck.IsChecked == true,
         AudioOffsetMs = (int)(OffsetBox.Value ?? 110),
     };
 
@@ -248,16 +441,17 @@ public partial class ConvertVideoDialog : Window
     {
         ConvertOptions o = ReadOptions();
         string exe = _ffmpeg ?? "ffmpeg";
-        string sample = _sources.Count > 0 ? _sources[0].Path : @"C:\videos\input.mkv";
-        FfmpegJob job = FfmpegCommand.Build(sample, o);
+        ConvertSourceItem? item = Sel ?? _sources.FirstOrDefault();
+        string sample = item?.Path ?? @"C:\videos\input.mkv";
+        FfmpegJob job = FfmpegCommand.Build(sample, o, null, item?.AudioTrack ?? 0, item?.Scale);
 
         string text = FfmpegCommand.Display(exe, job.VideoArgs);
         if (job.AudioArgs != null)
             text += Environment.NewLine + Environment.NewLine + FfmpegCommand.Display(exe, job.AudioArgs);
         CommandBox.Text = text;
 
-        CommandNote.Text = _sources.Count > 1
-            ? $"shown for {_sources[0].Name} — repeated for {_sources.Count} files"
+        CommandNote.Text = item != null && _sources.Count > 1
+            ? $"shown for {item.Name} — each file converts with its own track & resolution"
             : "";
     }
 
@@ -288,7 +482,7 @@ public partial class ConvertVideoDialog : Window
         ConvProgress.Value = 0;
 
         ConvertOptions o = ReadOptions();
-        var jobs = _sources.Select(s => FfmpegCommand.Build(s.Path, o)).ToList();
+        var jobs = _sources.Select(s => FfmpegCommand.Build(s.Path, o, null, s.AudioTrack, s.Scale)).ToList();
 
         int done = 0, failed = 0;
         for (int i = 0; i < jobs.Count && !ct.IsCancellationRequested; i++)
@@ -334,6 +528,7 @@ public partial class ConvertVideoDialog : Window
         CloseButton.Content = ProducedM2v.Count > 0 && AddToProject ? "Add & Close" : "Close";
         UpdateConvertEnabled();
         UpdateSourceUi();
+        RefreshPerFileUi();
     }
 
     private Task<FfmpegTool.RunResult> RunOne(IReadOnlyList<string> args, CancellationToken ct) =>
@@ -369,11 +564,12 @@ public partial class ConvertVideoDialog : Window
         AddFilesButton.IsEnabled = on;
         AddFolderButton.IsEnabled = on;
         ClearSourcesButton.IsEnabled = on && _sources.Count > 0;
-        RemoveSourceButton.IsEnabled = on && SourceList.SelectedItem != null;
+        RemoveSourceButton.IsEnabled = on && Sel != null;
         VqHighest.IsEnabled = VqBalanced.IsEnabled = VqCustom.IsEnabled = on;
         VideoBitrateBox.IsEnabled = on && VqCustom.IsChecked == true;
-        ResizeCheck.IsEnabled = on;
-        ResPreset.IsEnabled = WidthBox.IsEnabled = HeightBox.IsEnabled = on;
+        TrackCombo.IsEnabled = on && Sel?.Media is { AudioTracks.Count: > 0 };
+        ResCombo.IsEnabled = on && Sel != null;
+        WidthBox.IsEnabled = HeightBox.IsEnabled = on;
         AudioCheck.IsEnabled = on;
         AudioPanel.IsEnabled = on && AudioCheck.IsChecked == true;
     }

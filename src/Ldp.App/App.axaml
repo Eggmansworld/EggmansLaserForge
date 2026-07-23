@@ -18,8 +18,11 @@
         <SolidColorBrush x:Key="BgNode" Color="#333849"/>
         <SolidColorBrush x:Key="BgOverlay" Color="#E0262A36"/>
         <SolidColorBrush x:Key="FgPrimary" Color="#E4E7F0"/>
-        <SolidColorBrush x:Key="FgMuted" Color="#A0A6BA"/>
-        <SolidColorBrush x:Key="FgFaint" Color="#787F96"/>
+        <!-- Muted/Faint deliberately bright: status and hint text must stay
+             readable, not decorative (user feedback). Keep the three-step
+             hierarchy but never drop below comfortable contrast on BgPanel. -->
+        <SolidColorBrush x:Key="FgMuted" Color="#C2C8D9"/>
+        <SolidColorBrush x:Key="FgFaint" Color="#9CA4BB"/>
         <SolidColorBrush x:Key="Divider" Color="#3B4152"/>
         <SolidColorBrush x:Key="Accent" Color="#4CC2FF"/>
         <SolidColorBrush x:Key="AccentAmber" Color="#E8B04C"/>

@@ -30,21 +30,21 @@ public enum AudioQuality
     Custom,
 }
 
-/// <summary>User-chosen conversion settings, independent of any single input file.</summary>
+/// <summary>User-chosen conversion settings, independent of any single input file.
+/// Per-file choices (audio track, downscale) are passed to <see cref="FfmpegCommand.Build"/>.</summary>
 public sealed class ConvertOptions
 {
     public VideoQuality Video { get; set; } = VideoQuality.Highest;
     public int CustomVideoBitrateK { get; set; } = 6000;
 
-    /// <summary>When false (default, recommended) the source resolution is kept —
-    /// Hypseus scales the picture to the window/fullscreen itself.</summary>
-    public bool Resize { get; set; }
-    public int Width { get; set; } = 1280;
-    public int Height { get; set; } = 720;
-
     public bool CreateAudio { get; set; } = true;
     public AudioQuality Audio { get; set; } = AudioQuality.Standard;
     public int CustomAudioBitrateK { get; set; } = 160;
+
+    /// <summary>Downmix the chosen track to stereo (<c>-ac 2</c>). Default on:
+    /// Singe games play stereo, and libvorbis refuses low bitrates on 5.1/7.1
+    /// sources (the "encoder setup failed" error on multi-channel movie tracks).</summary>
+    public bool DownmixStereo { get; set; } = true;
 
     /// <summary>Audio pre-seek in milliseconds. The author's script uses 110 ms to
     /// nudge A/V sync; 0 disables the <c>-ss</c> offset entirely.</summary>
@@ -91,8 +91,13 @@ public static class FfmpegCommand
     }
 
     /// <summary>Builds the job for one input file. Outputs land next to the source
-    /// (or in <paramref name="outputDir"/>) under the source's base name.</summary>
-    public static FfmpegJob Build(string inputPath, ConvertOptions o, string? outputDir = null)
+    /// (or in <paramref name="outputDir"/>) under the source's base name.
+    /// <paramref name="audioTrack"/> selects which audio stream to convert
+    /// (<c>-map 0:a:{n}</c> — mapping ALL tracks, as <c>-map a</c> does, breaks on
+    /// multi-language sources). <paramref name="scale"/> optionally downscales the
+    /// picture (aspect handled by the caller; Hypseus tops out at 1080p).</summary>
+    public static FfmpegJob Build(string inputPath, ConvertOptions o, string? outputDir = null,
+                                  int audioTrack = 0, (int Width, int Height)? scale = null)
     {
         string dir = outputDir ?? Path.GetDirectoryName(Path.GetFullPath(inputPath)) ?? ".";
         string baseName = Path.GetFileNameWithoutExtension(inputPath);
@@ -100,8 +105,8 @@ public static class FfmpegCommand
         string ogg = Path.Combine(dir, baseName + ".ogg");
 
         var video = new List<string> { "-y", "-i", inputPath };
-        if (o.Resize)
-            video.AddRange(["-vf", $"scale={o.Width}:{o.Height}"]);
+        if (scale is { } s)
+            video.AddRange(["-vf", $"scale={s.Width}:{s.Height}"]);
         video.Add("-an");
         video.AddRange(o.Video switch
         {
@@ -118,8 +123,11 @@ public static class FfmpegCommand
             audio = ["-y", "-i", inputPath];
             if (o.AudioOffsetMs > 0)
                 audio.AddRange(["-ss", FormatOffset(o.AudioOffsetMs)]);
-            audio.AddRange(["-vn", "-c:a", "libvorbis", "-ar", "44100", "-map", "a",
-                            "-b:a", $"{o.EffectiveAudioBitrateK}k", ogg]);
+            audio.AddRange(["-vn", "-c:a", "libvorbis", "-ar", "44100",
+                            "-map", $"0:a:{Math.Max(0, audioTrack)}"]);
+            if (o.DownmixStereo)
+                audio.AddRange(["-ac", "2"]);
+            audio.AddRange(["-b:a", $"{o.EffectiveAudioBitrateK}k", ogg]);
         }
 
         return new FfmpegJob(inputPath, video, m2v, audio, o.CreateAudio ? ogg : null);

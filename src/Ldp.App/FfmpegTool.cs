@@ -42,6 +42,41 @@ public static class FfmpegTool
 
     public sealed record RunResult(bool Ok, int ExitCode, string Tail);
 
+    /// <summary>Reads a source's stream layout by running <c>ffmpeg -i file</c> and
+    /// parsing its stderr dump (the exit code is nonzero by design — no output file
+    /// is given). Returns null if the file has no parseable streams.</summary>
+    public static async Task<Ldp.Project.MediaInfo?> ProbeAsync(string ffmpegExe, string inputPath)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegExe,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+        };
+        psi.ArgumentList.Add("-hide_banner");
+        psi.ArgumentList.Add("-i");
+        psi.ArgumentList.Add(inputPath);
+
+        try
+        {
+            using var proc = Process.Start(psi);
+            if (proc == null) return null;
+            Task drain = proc.StandardOutput.BaseStream.CopyToAsync(Stream.Null);
+            string stderr = await proc.StandardError.ReadToEndAsync().ConfigureAwait(false);
+            await drain.ConfigureAwait(false);
+            await proc.WaitForExitAsync().ConfigureAwait(false);
+
+            Ldp.Project.MediaInfo info = Ldp.Project.MediaInfo.Parse(stderr);
+            return info.HasVideo || info.AudioTracks.Count > 0 ? info : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>
     /// Runs one FFmpeg invocation, streaming its stderr (where FFmpeg writes progress)
     /// to <paramref name="onLine"/>, and a 0..1 fraction to <paramref name="onProgress"/>
