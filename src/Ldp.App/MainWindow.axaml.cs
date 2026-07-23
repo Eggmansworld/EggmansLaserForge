@@ -318,6 +318,7 @@ public partial class MainWindow : Window
         _projectPath = null;
         _dirty = false;
         _markIn = _markOut = null;
+        UpdateMarkUi();
         _videoItems.Clear();
         _clipItems.Clear();
         VideoImage.Source = null;
@@ -1491,7 +1492,7 @@ public partial class MainWindow : Window
     private void TogglePlayback()
     {
         if (_engine == null) return;
-        if (_playing) { StopPlayback(); return; }
+        if (_playing) { PausePlayback(); return; }
 
         _playing = true;
         PlayButton.Content = "⏸";
@@ -1532,6 +1533,27 @@ public partial class MainWindow : Window
         foreach (AudioPlayer? player in _audioPlayers.Values) player?.Dispose();
         _audioPlayers.Clear();
         _warnedNoAudio.Clear();
+    }
+
+    /// <summary>
+    /// Pauses without abandoning the scene run: the queue, stop frame, and
+    /// playing clip all survive, so resuming with Space/▶ still honors the
+    /// scene's end marker instead of free-running past it.
+    /// </summary>
+    private void PausePlayback()
+    {
+        if (!_playing) return;
+        _playing = false;
+        PlayButton.Content = "▶";
+        InputOverlay.IsVisible = false;
+        ClearMoveHighlights();
+        _playingAudio?.Stop();
+        _playingAudio = null;
+        if (_playTimer != null)
+        {
+            _playTimer.Stop();
+            _playTimer.Tick -= OnPlayTick;
+        }
     }
 
     private void StopPlayback(bool clearQueue = true)
@@ -1596,6 +1618,7 @@ public partial class MainWindow : Window
 
         // With audio the sound device is the clock; the video follows it so
         // the two can never drift. Without audio, step one frame per tick.
+        int previous = _currentLocal;
         int next = _currentLocal + 1;
         if (_playingAudio != null)
         {
@@ -1607,6 +1630,40 @@ public partial class MainWindow : Window
         if (_playStopGlobal is { } stopG && _project != null)
             next = Math.Min(next, stopG - _project.Videos[_activeVideo].GlobalBase);
         ShowFrame(next);
+
+        // Free-run playback (no scene run in progress): when the playhead rolls
+        // off the end of the selected scene into another scene's range, follow
+        // it so the moves panel never strands the author at a boundary.
+        if (_playQueue == null && _playStopGlobal == null)
+            FollowSceneBoundary(previous, next);
+    }
+
+    /// <summary>
+    /// During free-run playback, moves the bin selection to the scene the
+    /// playhead just entered once it crosses the selected scene's end frame,
+    /// refreshing the interactions panel so moves can keep being added
+    /// without manual re-selection.
+    /// </summary>
+    private void FollowSceneBoundary(int previousLocal, int newLocal)
+    {
+        if (_project == null || _activeVideo < 0 || SelectedClip is not { } current) return;
+        int globalBase = _project.Videos[_activeVideo].GlobalBase;
+        int prevGlobal = globalBase + previousLocal;
+        int newGlobal = globalBase + newLocal;
+        if (prevGlobal > current.EndFrame || newGlobal <= current.EndFrame) return;
+
+        // The scene that now contains the playhead; latest start wins so a
+        // short scene nested inside a longer one is preferred.
+        Clip? entered = _project.Clips
+            .Where(c => c != current && newGlobal >= c.StartFrame && newGlobal <= c.EndFrame)
+            .OrderByDescending(c => c.StartFrame)
+            .FirstOrDefault();
+        if (entered == null) return;
+        if (_clipItems.FirstOrDefault(i => i.Clip == entered) is not { } item) return;
+
+        ClipList.SelectedItem = item; // OnClipSelected refreshes panel + marker strip
+        ClipList.ScrollIntoView(item);
+        StatusText.Text = $"Playhead entered '{entered.Name}' — moves panel followed along.";
     }
 
     // ---------- Chained clip playback (storyboard flow) ----------
@@ -1771,6 +1828,13 @@ public partial class MainWindow : Window
         UpdateMarkUi();
     }
 
+    private void OnClearMarks(object? sender, RoutedEventArgs e)
+    {
+        _markIn = _markOut = null;
+        UpdateMarkUi();
+        StatusText.Text = "In/Out marks cleared";
+    }
+
     private void UpdateMarkUi()
     {
         string inText = _markIn?.ToString().PadLeft(_counterDigits, '0') ?? "······";
@@ -1780,6 +1844,7 @@ public partial class MainWindow : Window
             : $"⟦ {inText} → {outText} ⟧" +
               (_markIn != null && _markOut != null ? $" ({_markOut - _markIn + 1} fr)" : "");
         NewClipButton.IsEnabled = _markIn != null && _markOut != null;
+        ClearMarksButton.IsEnabled = _markIn != null || _markOut != null;
     }
 
     private void OnNewClip(object? sender, RoutedEventArgs e)
@@ -2104,11 +2169,21 @@ public partial class MainWindow : Window
     private void OnClipListPointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(ClipList).Properties.IsLeftButtonPressed) return;
-        _binDragOrigin = e.GetPosition(ClipList);
-        _binDragPressArgs = e;
         _binPressItem = (e.Source as Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true)
             ?.DataContext as ClipItem;
         _binPressKeptSelection = false;
+
+        // Only a press on an actual scene row can arm a drag. The scrollbar and
+        // empty space live inside the ListBox too; arming there would hijack
+        // scrollbar drags into a phantom scene drag.
+        if (_binPressItem == null)
+        {
+            _binDragOrigin = null;
+            _binDragPressArgs = null;
+            return;
+        }
+        _binDragOrigin = e.GetPosition(ClipList);
+        _binDragPressArgs = e;
 
         // Pressing an already-selected row of a multi-selection would normally
         // collapse it before a drag can start. Keep the selection alive; if this
@@ -2136,19 +2211,15 @@ public partial class MainWindow : Window
 
     private async void OnClipListPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_binDragOrigin is not { } origin || _binDragPressArgs is not { } pressArgs) return;
+        if (_binDragOrigin is not { } origin || _binDragPressArgs is not { } pressArgs ||
+            _binPressItem is not { } pressed) return;
         Point pos = e.GetPosition(ClipList);
         if (Math.Abs(pos.X - origin.X) + Math.Abs(pos.Y - origin.Y) < 12) return;
 
         // Drag the multi-selection when the press started on part of it,
-        // otherwise just the row under the pointer.
+        // otherwise just the row the press started on.
         List<Clip> clips = SelectedScenesInOrder();
-        if (_binPressItem is { } pressed && !clips.Contains(pressed.Clip)) clips = [pressed.Clip];
-        if (clips.Count == 0)
-        {
-            if (ClipList.SelectedItem is ClipItem single) clips = [single.Clip];
-            else return;
-        }
+        if (!clips.Contains(pressed.Clip)) clips = [pressed.Clip];
 
         _binDragOrigin = null;
         _binDragPressArgs = null;

@@ -3,7 +3,7 @@
         xmlns:app="using:Ldp.App"
         x:Class="Ldp.App.MainWindow"
         Title="Eggman's LaserForge"
-        Icon="avares://Ldp.App/Assets/LaserForge.ico"
+        Icon="avares://LaserForge/Assets/LaserForge.ico"
         Width="1460" Height="900"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource BgWindow}">
@@ -140,6 +140,8 @@
                             <Button Name="MarkOutButton" Content="Out ⟧" Focusable="False" IsEnabled="False" Click="OnMarkOut"/>
                             <TextBlock Name="MarkText" VerticalAlignment="Center" Foreground="{DynamicResource AccentAmber}"
                                        FontFamily="Consolas,monospace" FontSize="14" Text=""/>
+                            <Button Name="ClearMarksButton" Content="✕" Focusable="False" IsEnabled="False" Click="OnClearMarks"
+                                    ToolTip.Tip="Clear the In/Out marks"/>
                             <Button Name="NewClipButton" Content="＋ New Scene" Focusable="False" IsEnabled="False" Click="OnNewClip"/>
                         </StackPanel>
                     </StackPanel>

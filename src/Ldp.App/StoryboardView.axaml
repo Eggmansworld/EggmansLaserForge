@@ -12,7 +12,7 @@
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
                            Foreground="{DynamicResource FgFaint}" FontSize="12"
-                           Text="drag empty space to pan · wheel to zoom · drag a port to wire · Del removes selection"/>
+                           Text="drag empty space to pan · wheel to zoom · Ctrl+click selects several · drag a port to wire · Del removes selection"/>
             </DockPanel>
         </Border>
 

@@ -42,12 +42,13 @@ public partial class StoryboardView : UserControl
     // Interaction state
     private Point _lastPointer;
     private bool _panning;
-    private StoryNode? _dragNode;
-    private Point _dragNodeStart;
+    private Dictionary<StoryNode, Point>? _dragStarts; // dragged nodes → positions at press
+    private StoryNode? _dragPressNode;
+    private bool _dragMoved;
     private Point _dragPointerStartWorld;
     private (StoryNode Node, PortKind Port)? _wireFrom;
     private Avalonia.Controls.Shapes.Path? _tempWire;
-    private StoryNode? _selectedNode;
+    private readonly HashSet<StoryNode> _selectedNodes = [];
     private StoryEdge? _selectedEdge;
 
     public StoryboardView()
@@ -131,6 +132,7 @@ public partial class StoryboardView : UserControl
         const int perRow = 4;
         const double gapX = 70, gapY = 60;
         StoryNode? previous = null;
+        List<StoryNode> added = [];
         for (int i = 0; i < clips.Count; i++)
         {
             var node = new StoryNode
@@ -141,12 +143,16 @@ public partial class StoryboardView : UserControl
                 Y = startY + i / perRow * (NodeH + gapY),
             };
             graph.Nodes.Add(node);
+            added.Add(node);
             if (linkInOrder && previous != null)
                 graph.Edges.Add(new StoryEdge { FromNode = previous.Id, FromPort = PortKind.Success, ToNode = node.Id });
             previous = node;
         }
 
         Rebuild();
+        // Leave the fresh batch selected so it can be group-dragged into place
+        // right away (the usual next step after importing several scenes).
+        SelectNodes(added);
         GraphChanged?.Invoke();
     }
 
@@ -156,7 +162,7 @@ public partial class StoryboardView : UserControl
     {
         _project = project;
         _clipLookup = clipLookup;
-        _selectedNode = null;
+        _selectedNodes.Clear();
         _selectedEdge = null;
 
         if (project != null)
@@ -207,6 +213,7 @@ public partial class StoryboardView : UserControl
         }
 
         Rebuild();
+        SelectNode(node); // highlight where it landed
         GraphChanged?.Invoke();
     }
 
@@ -418,7 +425,7 @@ public partial class StoryboardView : UserControl
         {
             if (_project == null) return;
             _project.Graph.RemoveNode(node.Id);
-            _selectedNode = null;
+            _selectedNodes.Remove(node);
             Rebuild();
             GraphChanged?.Invoke();
         }));
@@ -563,9 +570,14 @@ public partial class StoryboardView : UserControl
         if (props.IsLeftButtonPressed || props.IsMiddleButtonPressed)
         {
             _panning = true;
-            SelectNode(null);
-            SelectEdge(HitTestEdge(ToWorld(_lastPointer)));
-            if (_selectedEdge != null) _panning = false;
+            // With Ctrl held the author is mid-multi-select; a stray click on
+            // empty canvas must not throw the selection away.
+            if (!e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                SelectNode(null);
+                SelectEdge(HitTestEdge(ToWorld(_lastPointer)));
+                if (_selectedEdge != null) _panning = false;
+            }
             e.Pointer.Capture(Viewport);
         }
     }
@@ -580,13 +592,21 @@ public partial class StoryboardView : UserControl
         {
             _tempWire!.Data = WireGeometry(OutputPortCenter(wire.Node, wire.Port), ToWorld(pos));
         }
-        else if (_dragNode is { } node)
+        else if (_dragStarts is { Count: > 0 } starts)
         {
+            // The whole selection moves as one; every node keeps its offset
+            // from where it sat at press time.
             Point world = ToWorld(pos);
-            node.X = _dragNodeStart.X + (world.X - _dragPointerStartWorld.X);
-            node.Y = _dragNodeStart.Y + (world.Y - _dragPointerStartWorld.Y);
-            PositionNode(node);
-            RedrawEdgesTouching(node.Id);
+            double dx = world.X - _dragPointerStartWorld.X;
+            double dy = world.Y - _dragPointerStartWorld.Y;
+            if (Math.Abs(dx) + Math.Abs(dy) > 0.5) _dragMoved = true;
+            foreach ((StoryNode node, Point start) in starts)
+            {
+                node.X = start.X + dx;
+                node.Y = start.Y + dy;
+                PositionNode(node);
+                RedrawEdgesTouching(node.Id);
+            }
         }
         else if (_panning)
         {
@@ -631,10 +651,21 @@ public partial class StoryboardView : UserControl
                 GraphChanged?.Invoke();
             }
         }
-        else if (_dragNode != null)
+        else if (_dragStarts != null)
         {
-            _dragNode = null;
-            GraphChanged?.Invoke(); // position changed
+            if (_dragMoved)
+            {
+                GraphChanged?.Invoke(); // positions changed
+            }
+            else if (_dragPressNode is { } pressed && _selectedNodes.Count > 1)
+            {
+                // A plain click (no movement) on a multi-selection collapses
+                // it to the clicked node, like any list would.
+                SelectNode(pressed);
+            }
+            _dragStarts = null;
+            _dragPressNode = null;
+            _dragMoved = false;
         }
         _panning = false;
         e.Pointer.Capture(null);
@@ -643,9 +674,23 @@ public partial class StoryboardView : UserControl
     private void OnNodePressed(StoryNode node, PointerPressedEventArgs e)
     {
         if (!e.GetCurrentPoint(Viewport).Properties.IsLeftButtonPressed) return;
-        SelectNode(node);
-        _dragNode = node;
-        _dragNodeStart = new Point(node.X, node.Y);
+
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            // Ctrl+click grows/shrinks the multi-selection; no drag starts on
+            // this press so the selection can be built up safely.
+            ToggleNodeSelection(node);
+            e.Handled = true;
+            return;
+        }
+
+        // A plain press on part of the selection keeps the group (so it can be
+        // dragged as one); on anything else it collapses to the pressed node.
+        if (!_selectedNodes.Contains(node)) SelectNode(node);
+
+        _dragPressNode = node;
+        _dragMoved = false;
+        _dragStarts = _selectedNodes.ToDictionary(n => n, n => new Point(n.X, n.Y));
         _dragPointerStartWorld = ToWorld(e.GetPosition(Viewport));
         e.Pointer.Capture(Viewport);
         e.Handled = true;
@@ -655,25 +700,45 @@ public partial class StoryboardView : UserControl
 
     private void SelectNode(StoryNode? node)
     {
-        _selectedNode = node;
-        if (node != null) _selectedEdge = null;
+        _selectedNodes.Clear();
+        if (node != null)
+        {
+            _selectedNodes.Add(node);
+            _selectedEdge = null;
+        }
+        UpdateSelectionVisuals();
+    }
+
+    private void SelectNodes(IEnumerable<StoryNode> nodes)
+    {
+        _selectedNodes.Clear();
+        foreach (StoryNode node in nodes) _selectedNodes.Add(node);
+        if (_selectedNodes.Count > 0) _selectedEdge = null;
+        UpdateSelectionVisuals();
+    }
+
+    private void ToggleNodeSelection(StoryNode node)
+    {
+        if (!_selectedNodes.Remove(node)) _selectedNodes.Add(node);
+        if (_selectedNodes.Count > 0) _selectedEdge = null;
         UpdateSelectionVisuals();
     }
 
     private void SelectEdge(StoryEdge? edge)
     {
         _selectedEdge = edge;
-        if (edge != null) _selectedNode = null;
+        if (edge != null) _selectedNodes.Clear();
         UpdateSelectionVisuals();
     }
 
     private void UpdateSelectionVisuals()
     {
+        HashSet<Guid> selected = _selectedNodes.Select(n => n.Id).ToHashSet();
         foreach ((Guid id, Control control) in _nodeControls)
         {
             if (((Canvas)control).Children.OfType<Border>().FirstOrDefault() is { } body)
                 body.BorderBrush = (IBrush?)this.FindResource(
-                    _selectedNode?.Id == id ? "Accent" : "Divider");
+                    selected.Contains(id) ? "Accent" : "Divider");
         }
         foreach ((StoryEdge edge, Avalonia.Controls.Shapes.Path path) in _edgePaths)
             path.StrokeThickness = ReferenceEquals(edge, _selectedEdge) ? 4.5 : 2.5;
@@ -740,10 +805,11 @@ public partial class StoryboardView : UserControl
         if (!IsVisible || _project == null || e.Source is TextBox) return;
         if (e.Key is Key.Delete or Key.Back)
         {
-            if (_selectedNode is { } node && node.Kind != NodeKind.Start)
+            List<StoryNode> doomed = _selectedNodes.Where(n => n.Kind != NodeKind.Start).ToList();
+            if (doomed.Count > 0)
             {
-                _project.Graph.RemoveNode(node.Id);
-                _selectedNode = null;
+                foreach (StoryNode node in doomed) _project.Graph.RemoveNode(node.Id);
+                _selectedNodes.Clear();
                 Rebuild();
                 GraphChanged?.Invoke();
                 e.Handled = true;

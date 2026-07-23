@@ -9,7 +9,7 @@
     <StackPanel>
 
         <!-- Banner -->
-        <Image Source="avares://Ldp.App/Assets/banner.png" Stretch="UniformToFill"
+        <Image Source="avares://LaserForge/Assets/banner.png" Stretch="UniformToFill"
                Height="262" HorizontalAlignment="Stretch"/>
 
         <StackPanel Margin="22,16,22,18" Spacing="10">
