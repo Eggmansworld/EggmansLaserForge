@@ -3,6 +3,7 @@
         xmlns:app="using:Ldp.App"
         x:Class="Ldp.App.MainWindow"
         Title="Eggman's LaserForge"
+        Icon="avares://Ldp.App/Assets/LaserForge.ico"
         Width="1460" Height="900"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource BgWindow}">
