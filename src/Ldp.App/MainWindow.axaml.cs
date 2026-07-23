@@ -6,6 +6,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Ldp.Engine;
 using Ldp.Project;
 using System;
@@ -91,7 +92,7 @@ public partial class MainWindow : Window
         // Scenes can be dragged from the bin onto the storyboard canvas.
         ClipList.AddHandler(PointerPressedEvent, OnClipListPointerPressed, RoutingStrategies.Tunnel);
         ClipList.AddHandler(PointerMovedEvent, OnClipListPointerMoved, RoutingStrategies.Tunnel);
-        ClipList.AddHandler(PointerReleasedEvent, (_, _) => { _binDragOrigin = null; _binDragPressArgs = null; }, RoutingStrategies.Tunnel);
+        ClipList.AddHandler(PointerReleasedEvent, (_, _) => OnClipListPointerReleased(), RoutingStrategies.Tunnel);
 
         GameSetup.SlotsChanged += () => { MarkDirty(); SaveProject(); };
         GameSetup.GotoFrameRequested += async frame =>
@@ -478,6 +479,8 @@ public partial class MainWindow : Window
         TestHypseusButton.IsEnabled = hasProject && !string.IsNullOrWhiteSpace(_project!.HypseusRoot);
         AddVideoButton.IsEnabled = hasProject;
         RemoveVideoButton.IsEnabled = false; // re-enabled when a video is selected
+        RenameVideoButton.IsEnabled = false;
+        ImportChaptersButton.IsEnabled = hasProject;
         MarkInButton.IsEnabled = MarkOutButton.IsEnabled = hasProject;
 
         _videoItems.Clear();
@@ -853,35 +856,105 @@ public partial class MainWindow : Window
     private async void OnConvertVideo(object? sender, RoutedEventArgs e) => await ConvertThenAddAsync(null);
 
     /// <summary>Opens the conversion dialog (optionally seeded with source files) and,
-    /// if the user asked, adds the produced .m2v files to the project.</summary>
+    /// if the user asked, adds the produced .m2v files to the project — along with
+    /// any chapter-generated scenes and exported language tracks.</summary>
     private async Task ConvertThenAddAsync(IReadOnlyList<string>? seedFiles)
     {
         bool projectOpen = _project != null && _projectPath != null;
+
+        // Release the cached audio readers: re-converting audio for a video
+        // that's loaded would otherwise fail — the players hold the .ogg files
+        // open. They reopen lazily (picking up the fresh files) on next play.
+        StopPlayback();
+        DisposeAudioPlayers();
+        _warnedNoAudio.Clear();
+
         var dialog = new ConvertVideoDialog(_settings, projectOpen, seedFiles);
         await dialog.ShowDialog(this);
 
-        if (dialog.ProducedM2v.Count == 0) return;
+        if (dialog.Produced.Count == 0) return;
 
         if (!projectOpen || !dialog.AddToProject)
         {
-            StatusText.Text = $"Converted {dialog.ProducedM2v.Count} video(s) to .m2v" +
+            StatusText.Text = $"Converted {dialog.Produced.Count} video(s)" +
                               (projectOpen ? " (not added to the project)." : ".");
             return;
         }
 
-        int added = 0;
-        foreach (string m2v in dialog.ProducedM2v)
-            if (File.Exists(m2v) && await TryAddVideoAsync(m2v)) added++;
+        int added = 0, refreshed = 0, chapterScenes = 0, languagesAdded = 0;
+        foreach (ConvertVideoDialog.ProducedVideo produced in dialog.Produced)
+        {
+            // Audio-only reruns target a video that's already in the project —
+            // match it by path instead of adding a duplicate.
+            int videoIndex = FindProjectVideoIndex(produced.M2vPath);
+            if (videoIndex >= 0)
+            {
+                refreshed++;
+            }
+            else if (File.Exists(produced.M2vPath) && await TryAddVideoAsync(produced.M2vPath))
+            {
+                videoIndex = _project!.Videos.Count - 1;
+                added++;
+            }
 
-        int skipped = dialog.ProducedM2v.Count - added;
-        StatusText.Text = added > 0
-            ? $"Converted and added {added} video(s)" + (skipped > 0 ? $" — {skipped} skipped (see log)." : ".")
-            : "Converted, but no videos were added (see log for why).";
+            if (videoIndex >= 0 && produced.ImportChapters && produced.Media != null)
+                chapterScenes += CreateScenesFromChapters(produced.Media, videoIndex);
+
+            // Exported language tracks join Game Setup's language list so the
+            // exporter's LangOpt block offers them without extra typing.
+            foreach ((string suffix, string languageName) in produced.Languages)
+            {
+                if (_project!.Languages.Count == 0)
+                    _project.Languages.Add(new GameLanguage { Name = "English", Suffix = "" });
+                if (!_project.Languages.Any(l => l.Suffix.Equals(suffix, StringComparison.OrdinalIgnoreCase)))
+                {
+                    _project.Languages.Add(new GameLanguage { Name = languageName, Suffix = suffix });
+                    languagesAdded++;
+                }
+            }
+        }
+
+        if (languagesAdded > 0)
+        {
+            MarkDirty();
+            SaveProject();
+            GameSetup.Refresh();
+        }
+        if (chapterScenes > 0) await GenerateMissingThumbnailsAsync();
+
+        int skipped = dialog.Produced.Count - added - refreshed;
+        if (added == 0 && refreshed == 0 && languagesAdded == 0)
+        {
+            StatusText.Text = "Converted, but no videos were added (see log for why).";
+            return;
+        }
+        var parts = new List<string>();
+        if (added > 0) parts.Add($"added {added} video(s)");
+        if (refreshed > 0) parts.Add($"updated audio for {refreshed} existing video(s)");
+        if (chapterScenes > 0) parts.Add($"{chapterScenes} scene(s) from chapters");
+        if (languagesAdded > 0) parts.Add($"{languagesAdded} language track(s) in Game Setup");
+        if (skipped > 0) parts.Add($"{skipped} skipped (see log)");
+        StatusText.Text = "Converted: " + string.Join(" · ", parts) + ".";
+    }
+
+    /// <summary>Index of the project video whose file is <paramref name="absolutePath"/>, or -1.</summary>
+    private int FindProjectVideoIndex(string absolutePath)
+    {
+        if (_project == null || _projectPath == null) return -1;
+        for (int i = 0; i < _project.Videos.Count; i++)
+        {
+            string resolved = ProjectFile.ResolveVideoPath(_projectPath, _project.Videos[i]);
+            if (string.Equals(Path.GetFullPath(resolved), Path.GetFullPath(absolutePath),
+                              StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
     }
 
     private async void OnVideoSelected(object? sender, SelectionChangedEventArgs e)
     {
         RemoveVideoButton.IsEnabled = _project != null && VideoList.SelectedIndex >= 0;
+        RenameVideoButton.IsEnabled = RemoveVideoButton.IsEnabled;
         if (_suppressVideoSelection || _project == null ||
             VideoList.SelectedIndex < 0 || VideoList.SelectedIndex == _activeVideo) return;
         await ActivateVideoAsync(VideoList.SelectedIndex);
@@ -936,6 +1009,253 @@ public partial class MainWindow : Window
                           (orphaned > 0
                               ? $" — ⚠ {orphaned} scene(s) now reference no video (Ctrl+Z to undo)"
                               : " (Ctrl+Z to undo)");
+    }
+
+    private async void OnRenameVideo(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null || _projectPath == null) return;
+        int index = VideoList.SelectedIndex;
+        if (index < 0 || index >= _project.Videos.Count) return;
+
+        VideoSource source = _project.Videos[index];
+        string oldAbs = ProjectFile.ResolveVideoPath(_projectPath, source);
+        string dir = Path.GetDirectoryName(oldAbs)!;
+        string ext = Path.GetExtension(oldAbs);
+        string oldBase = Path.GetFileNameWithoutExtension(oldAbs);
+
+        var dialog = new RenameDialog("Rename Video",
+            "New file name, without the extension (letters, digits, _ and - ; spaces become _). " +
+            "The matching .ogg, any language .ogg tracks, and the index caches are renamed along " +
+            "with it. Scenes are anchored to frame numbers, so they are all preserved.",
+            oldBase);
+        await dialog.ShowDialog(this);
+        if (dialog.Result is not { } raw || raw.Trim().Length == 0) return;
+        string newBase = LdpProject.SanitizeFolder(raw);
+        if (newBase == oldBase) return;
+
+        string newAbs = Path.Combine(dir, newBase + ext);
+        if (!File.Exists(oldAbs)) { StatusText.Text = $"'{oldAbs}' was not found on disk."; return; }
+        if (File.Exists(newAbs)) { StatusText.Text = $"'{Path.GetFileName(newAbs)}' already exists — pick another name."; return; }
+
+        // The engine and audio player hold the files open, which blocks a rename
+        // on Windows — release everything first (same teardown as removal).
+        StopPlayback();
+        DisposeAudioPlayers();
+        foreach (FrameEngine engine in _engines.Values) engine.Dispose();
+        _engines.Clear();
+        _engine = null;
+        int wasActive = _activeVideo;
+        _activeVideo = -1;
+
+        var renamed = new List<string>();
+        var problems = new List<string>();
+        try
+        {
+            File.Move(oldAbs, newAbs);
+            renamed.Add(Path.GetFileName(newAbs));
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Rename failed: {ex.Message}";
+            if (wasActive >= 0) await ActivateVideoAsync(wasActive);
+            return;
+        }
+
+        foreach ((string from, string to) in SidecarRenames(dir, oldBase, newBase, ext))
+        {
+            try
+            {
+                if (!File.Exists(from) || File.Exists(to)) continue;
+                File.Move(from, to);
+                renamed.Add(Path.GetFileName(to));
+            }
+            catch (Exception ex)
+            {
+                problems.Add($"{Path.GetFileName(from)} ({ex.Message})");
+            }
+        }
+
+        source.Path = ProjectFile.RelativizeVideoPath(_projectPath, newAbs);
+        SaveProject();
+        // Disk renames can't be undone by Ctrl+Z, and an older snapshot would
+        // resurrect the old file name — the history is no longer valid.
+        ResetUndoHistory();
+        UpdateProjectUi();
+
+        if (wasActive >= 0)
+        {
+            _suppressVideoSelection = true;
+            VideoList.SelectedIndex = Math.Min(wasActive, _project.Videos.Count - 1);
+            _suppressVideoSelection = false;
+            await ActivateVideoAsync(VideoList.SelectedIndex);
+        }
+
+        StatusText.Text = $"Renamed to {newBase}{ext} ({renamed.Count} file(s) incl. sidecars) — all scenes preserved." +
+                          (problems.Count > 0 ? $" ⚠ Could not rename: {string.Join(", ", problems)}" : "");
+    }
+
+    /// <summary>Sidecar files that must follow a video rename: the frame-index
+    /// cache, the emulator's .dat, the companion .ogg, and any language tracks
+    /// (base-fre.ogg …).</summary>
+    private static IEnumerable<(string From, string To)> SidecarRenames(
+        string dir, string oldBase, string newBase, string videoExt)
+    {
+        yield return (Path.Combine(dir, oldBase + videoExt + ".ldpidx"),
+                      Path.Combine(dir, newBase + videoExt + ".ldpidx"));
+        yield return (Path.Combine(dir, oldBase + ".dat"), Path.Combine(dir, newBase + ".dat"));
+        yield return (Path.Combine(dir, oldBase + ".ogg"), Path.Combine(dir, newBase + ".ogg"));
+
+        List<(string, string)> langTracks = [];
+        try
+        {
+            foreach (string f in Directory.EnumerateFiles(dir, "*.ogg"))
+            {
+                string name = Path.GetFileName(f);
+                if (name.StartsWith(oldBase + "-", StringComparison.OrdinalIgnoreCase))
+                    langTracks.Add((f, Path.Combine(dir, newBase + name[oldBase.Length..])));
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        foreach ((string, string) pair in langTracks) yield return pair;
+    }
+
+    private async void OnRenameClip(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null || SelectedClip is not { } clip) return;
+        var dialog = new RenameDialog("Rename Scene", "New scene name:", clip.Name);
+        await dialog.ShowDialog(this);
+        string? name = dialog.Result?.Trim();
+        if (string.IsNullOrEmpty(name) || name == clip.Name) return;
+
+        clip.Name = name;
+        MarkDirty();
+        SaveProject();
+
+        int i = ClipList.SelectedIndex;
+        if (i >= 0 && i < _clipItems.Count)
+        {
+            _clipItems[i] = MakeClipItem(clip);
+            ClipList.SelectedIndex = i;
+        }
+        Storyboard.Refresh();
+        RefreshInteractions();
+        StatusText.Text = $"Scene renamed to '{clip.Name}' (Ctrl+Z to undo).";
+    }
+
+    /// <summary>Overwrites the selected scene's thumbnail with the frame currently
+    /// shown in the viewer — for when the auto thumbnail (the scene's first frame)
+    /// lands on a black frame or a dark fade.</summary>
+    private async void OnSetThumbnail(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null || _projectPath == null || SelectedClip is not { } clip ||
+            _engine == null || _activeVideo < 0) return;
+
+        int local = _currentLocal;
+        int global = CurrentGlobal;
+        FrameEngine engine = _engine;
+        string thumbPath = Path.Combine(ProjectFile.CacheDir(_projectPath), clip.Id + ".png");
+
+        await _decodeGate.WaitAsync();
+        try
+        {
+            FrameImage image = await Task.Run(() => engine.GetFrame(local));
+            WriteableBitmap thumb = Thumbnails.FromFrame(image);
+            thumb.Save(thumbPath);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not set thumbnail: " + ex.Message;
+            return;
+        }
+        finally
+        {
+            _decodeGate.Release();
+        }
+
+        for (int i = 0; i < _clipItems.Count; i++)
+        {
+            if (_clipItems[i].Clip.Id != clip.Id) continue;
+            bool wasSelected = ClipList.SelectedIndex == i;
+            _clipItems[i] = MakeClipItem(clip);
+            if (wasSelected) ClipList.SelectedIndex = i;
+            break;
+        }
+        Storyboard.Refresh();
+        StatusText.Text = $"Thumbnail for '{clip.Name}' set from frame {global:D6}.";
+    }
+
+    // ---------- Chapter import ----------
+
+    private async void OnImportChapters(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null || _projectPath == null) return;
+        if (_project.Videos.Count == 0)
+        {
+            StatusText.Text = "Add a video first — chapters are imported onto one of the project's videos.";
+            return;
+        }
+
+        string? ffmpeg = FfmpegTool.IsValidExe(_settings.FfmpegPath) ? _settings.FfmpegPath : FfmpegTool.ProbeSystem();
+        if (ffmpeg == null)
+        {
+            StatusText.Text = "FFmpeg is needed to read chapters — set it up once in Tools → Convert Video → M2V.";
+            return;
+        }
+
+        // Chapters live in the ORIGINAL source (mkv/mp4) — the .m2v has none.
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Pick the ORIGINAL source video (its chapters become scenes)",
+            FileTypeFilter =
+            [
+                new FilePickerFileType("Source video (mkv, mp4, webm)")
+                    { Patterns = ["*.mkv", "*.mp4", "*.webm", "*.mov", "*.m4v", "*.avi", "*.ts"] },
+                new FilePickerFileType("All files") { Patterns = ["*"] },
+            ],
+        });
+        string? path = files.Count == 1 ? files[0].TryGetLocalPath() : null;
+        if (path == null) return;
+
+        StatusText.Text = $"Reading chapters from {Path.GetFileName(path)}…";
+        MediaInfo? media = await FfmpegTool.ProbeAsync(ffmpeg, path);
+        if (media == null || media.Chapters.Count == 0)
+        {
+            StatusText.Text = $"No chapters found in {Path.GetFileName(path)}.";
+            return;
+        }
+
+        // Target = the highlighted video (or the only/active one).
+        int videoIndex = VideoList.SelectedIndex >= 0 ? VideoList.SelectedIndex
+                       : _activeVideo >= 0 ? _activeVideo : 0;
+        int created = CreateScenesFromChapters(media, videoIndex);
+        StatusText.Text = created > 0
+            ? $"Created {created} scene(s) from {media.Chapters.Count} chapter(s) onto " +
+              $"{Path.GetFileName(_project.Videos[videoIndex].Path)} (Ctrl+Z to undo)."
+            : "No scenes created — the chapters were already imported or are empty.";
+        if (created > 0) await GenerateMissingThumbnailsAsync();
+    }
+
+    /// <summary>Adds "Chapter X (imported)" scenes for a probed source onto a
+    /// project video, skipping chapters that were imported before (same name and
+    /// start frame). Returns how many scenes were added.</summary>
+    private int CreateScenesFromChapters(MediaInfo media, int videoIndex)
+    {
+        if (_project == null || videoIndex < 0 || videoIndex >= _project.Videos.Count) return 0;
+        VideoSource video = _project.Videos[videoIndex];
+
+        List<Clip> scenes = ChapterImport.BuildScenes(
+            media.Chapters, video.Fps, video.GlobalBase, video.PictureCount);
+        List<Clip> fresh = scenes
+            .Where(s => !_project.Clips.Any(c => c.Name == s.Name && c.StartFrame == s.StartFrame))
+            .ToList();
+        if (fresh.Count == 0) return 0;
+
+        _project.Clips.AddRange(fresh);
+        foreach (Clip clip in fresh) _clipItems.Add(MakeClipItem(clip));
+        MarkDirty();
+        SaveProject();
+        return fresh.Count;
     }
 
     private async Task<FrameEngine> OpenEngineAsync(string path)
@@ -1532,7 +1852,8 @@ public partial class MainWindow : Window
         bool hasSelection = ClipList.SelectedItem is ClipItem;
         PlayClipButton.IsEnabled = GotoClipButton.IsEnabled =
             DeleteClipButton.IsEnabled = ToStoryboardButton.IsEnabled =
-            MoveClipUpButton.IsEnabled = MoveClipDownButton.IsEnabled = hasSelection;
+            MoveClipUpButton.IsEnabled = MoveClipDownButton.IsEnabled =
+            RenameClipButton.IsEnabled = ThumbClipButton.IsEnabled = hasSelection;
         RefreshInteractions();
         RepaintMarkerStrip();
     }
@@ -1743,38 +2064,98 @@ public partial class MainWindow : Window
         PlayClipSequence([item.Clip]);
     }
 
-    private void OnAddToStoryboard(object? sender, RoutedEventArgs e)
+    private async void OnAddToStoryboard(object? sender, RoutedEventArgs e)
     {
-        if (ClipList.SelectedItem is not ClipItem item) return;
-        Storyboard.AddClipNode(item.Clip);
-        StatusText.Text = $"'{item.Clip.Name}' added to storyboard (auto-chained; drag from the bin to place loose)";
+        List<Clip> clips = SelectedScenesInOrder();
+        if (clips.Count == 0) return;
+        if (clips.Count == 1)
+        {
+            Storyboard.AddClipNode(clips[0]);
+            StatusText.Text = $"'{clips[0].Name}' added to storyboard (auto-chained; drag from the bin to place loose)";
+            return;
+        }
+
+        var dialog = new AddScenesDialog(clips.Count);
+        await dialog.ShowDialog(this);
+        if (dialog.LinkInOrder is not { } link) return;
+        Storyboard.AddClipNodes(clips, link);
+        ShowStoryboardPane();
+        StatusText.Text = link
+            ? $"Added {clips.Count} scenes to the storyboard, linked in scene order."
+            : $"Added {clips.Count} scenes to the storyboard (unlinked).";
+    }
+
+    /// <summary>The selected scenes in SCENES-LIST order (not click order) — the
+    /// order batch drops link them in.</summary>
+    private List<Clip> SelectedScenesInOrder()
+    {
+        if (_project == null || ClipList.SelectedItems is not { } selected) return [];
+        var chosen = new HashSet<Clip>(selected.OfType<ClipItem>().Select(i => i.Clip));
+        return _project.Clips.Where(chosen.Contains).ToList();
     }
 
     // ---------- Drag scenes from bin to storyboard ----------
 
     private Point? _binDragOrigin;
     private PointerPressedEventArgs? _binDragPressArgs;
+    private ClipItem? _binPressItem;
+    private bool _binPressKeptSelection;
 
     private void OnClipListPointerPressed(object? sender, PointerPressedEventArgs e)
     {
-        if (e.GetCurrentPoint(ClipList).Properties.IsLeftButtonPressed)
+        if (!e.GetCurrentPoint(ClipList).Properties.IsLeftButtonPressed) return;
+        _binDragOrigin = e.GetPosition(ClipList);
+        _binDragPressArgs = e;
+        _binPressItem = (e.Source as Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true)
+            ?.DataContext as ClipItem;
+        _binPressKeptSelection = false;
+
+        // Pressing an already-selected row of a multi-selection would normally
+        // collapse it before a drag can start. Keep the selection alive; if this
+        // turns out to be a plain click, the release handler collapses it.
+        bool noModifiers = (e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Shift)) == 0;
+        if (noModifiers && _binPressItem != null &&
+            ClipList.SelectedItems is { Count: > 1 } selected && selected.Contains(_binPressItem))
         {
-            _binDragOrigin = e.GetPosition(ClipList);
-            _binDragPressArgs = e;
+            e.Handled = true;
+            _binPressKeptSelection = true;
         }
+    }
+
+    private void OnClipListPointerReleased()
+    {
+        // Released without dragging: a plain click on a selected row collapses
+        // the multi-selection to that row, like a normal list.
+        if (_binPressKeptSelection && _binDragOrigin != null && _binPressItem != null)
+            ClipList.SelectedItem = _binPressItem;
+        _binDragOrigin = null;
+        _binDragPressArgs = null;
+        _binPressItem = null;
+        _binPressKeptSelection = false;
     }
 
     private async void OnClipListPointerMoved(object? sender, PointerEventArgs e)
     {
-        if (_binDragOrigin is not { } origin || _binDragPressArgs is not { } pressArgs ||
-            ClipList.SelectedItem is not ClipItem item) return;
+        if (_binDragOrigin is not { } origin || _binDragPressArgs is not { } pressArgs) return;
         Point pos = e.GetPosition(ClipList);
         if (Math.Abs(pos.X - origin.X) + Math.Abs(pos.Y - origin.Y) < 12) return;
 
+        // Drag the multi-selection when the press started on part of it,
+        // otherwise just the row under the pointer.
+        List<Clip> clips = SelectedScenesInOrder();
+        if (_binPressItem is { } pressed && !clips.Contains(pressed.Clip)) clips = [pressed.Clip];
+        if (clips.Count == 0)
+        {
+            if (ClipList.SelectedItem is ClipItem single) clips = [single.Clip];
+            else return;
+        }
+
         _binDragOrigin = null;
         _binDragPressArgs = null;
+        _binPressKeptSelection = false;
         var transfer = new DataTransfer();
-        transfer.Add(DataTransferItem.Create(StoryboardView.ClipDragFormat, item.Clip.Id.ToString()));
+        transfer.Add(DataTransferItem.Create(StoryboardView.ClipDragFormat,
+            string.Join(';', clips.Select(c => c.Id))));
         ShowStoryboardPane();
         await DragDrop.DoDragDropAsync(pressArgs, transfer, DragDropEffects.Copy);
     }

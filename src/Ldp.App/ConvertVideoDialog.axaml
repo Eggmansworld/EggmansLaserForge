@@ -29,7 +29,7 @@
 
                 <DockPanel>
                     <CheckBox Name="AutoAddCheck" DockPanel.Dock="Left" VerticalAlignment="Center"
-                              Content="Add finished videos to the project"/>
+                              Click="OnAutoAddToggled" Content="Add finished videos to the project"/>
                     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
                         <Button Name="ConvertButton" Content="▶ Convert" IsEnabled="False" Click="OnConvert"/>
                         <Button Name="CloseButton" Content="Close" Click="OnClose"/>
@@ -93,7 +93,11 @@
                         </StackPanel>
                         <TextBlock Name="PerFileNote" IsVisible="False" TextWrapping="Wrap" FontSize="12"
                                    Foreground="{DynamicResource FgMuted}"
-                                   Text="Audio track and resolution are per-file: highlight a file above to set its own choices."/>
+                                   Text="Audio track, resolution, chapters, and language tracks are per-file: highlight a file above to set its own choices."/>
+                        <CheckBox Name="ChaptersCheck" IsVisible="False" Click="OnChaptersToggled" Content=""/>
+                        <TextBlock Name="ChaptersHint" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                                   Margin="26,0,0,0" Foreground="{DynamicResource FgFaint}"
+                                   Text="Great when chapters sit between real scenes (most movies); untick for sources with an overabundance of markers."/>
                     </StackPanel>
                 </Border>
 
@@ -101,6 +105,11 @@
                 <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
                     <StackPanel Spacing="6">
                         <TextBlock Text="VIDEO QUALITY" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <CheckBox Name="AudioOnlyCheck" Click="OnAudioOnlyToggled"
+                                  Content="Audio only — skip the video pass (.m2v already exists; just make .ogg tracks)"/>
+                        <TextBlock TextWrapping="Wrap" FontSize="12" Margin="26,0,0,4"
+                                   Foreground="{DynamicResource FgFaint}"
+                                   Text="Use this to come back for language tracks (or redo the audio) without re-encoding the video."/>
                         <RadioButton Name="VqHighest" GroupName="Vq" IsChecked="True" Click="OnOptionChanged">
                             <StackPanel>
                                 <TextBlock Text="Highest quality — working master" FontSize="13" Foreground="{DynamicResource FgPrimary}"/>
@@ -175,6 +184,11 @@
                             <TextBlock Name="TrackHint" TextWrapping="Wrap" FontSize="12"
                                        Foreground="{DynamicResource FgMuted}"
                                        Text="Locate ffmpeg and add a file to list its audio tracks."/>
+                            <StackPanel Name="LangPanel" Spacing="2" IsVisible="False" Margin="0,4,0,2">
+                                <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource FgMuted}"
+                                           Text="Extra language tracks — each also exports its own .ogg (video name + language suffix), ready for Hypseus language switching:"/>
+                                <StackPanel Name="LangList" Spacing="2" Margin="8,2,0,0"/>
+                            </StackPanel>
                             <CheckBox Name="DownmixCheck" IsChecked="True" Click="OnOptionChanged"
                                       Content="Downmix to stereo (recommended)"/>
                             <TextBlock TextWrapping="Wrap" FontSize="12" Margin="26,0,0,0"

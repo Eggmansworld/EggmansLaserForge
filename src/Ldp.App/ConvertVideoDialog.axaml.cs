@@ -39,6 +39,13 @@ public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
     /// <summary>True when the user picked "Custom…" rather than a preset.</summary>
     public bool CustomScale { get; set; }
 
+    /// <summary>Generate "Chapter X (imported)" scenes from the source's chapter
+    /// markers after the converted video is added to the project.</summary>
+    public bool ImportChapters { get; set; }
+
+    /// <summary>Extra audio streams to export as language-track .ogg files.</summary>
+    public HashSet<int> LanguageTracks { get; } = [];
+
     private string _info = "";
     public string Info
     {
@@ -65,10 +72,15 @@ public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
             MediaInfo.DownscalePresets(media.Width, media.Height) is { Count: > 0 } presets)
             Scale = presets[0];
 
+        // Sensible chapter counts get pre-ticked; sources with an overabundance
+        // of markers (or a lone marker) start unticked.
+        ImportChapters = media.Chapters.Count is >= 2 and <= 60;
+
         string fps = media.Fps > 0 ? $" · {media.Fps:0.##} fps" : "";
         string tracks = $" · {media.AudioTracks.Count} audio track{(media.AudioTracks.Count == 1 ? "" : "s")}";
+        string chapters = media.Chapters.Count > 0 ? $" · {media.Chapters.Count} chapters" : "";
         string warn = media.ExceedsHypseusLimit ? " · above 1080p — downscale recommended" : "";
-        Info = $"{media.Width}×{media.Height}{fps}{tracks}{warn}";
+        Info = $"{media.Width}×{media.Height}{fps}{tracks}{chapters}{warn}";
     }
 }
 
@@ -82,15 +94,25 @@ public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
 /// </summary>
 public partial class ConvertVideoDialog : Window
 {
+    /// <summary>One successfully converted video and everything the caller may
+    /// want to do with it: its probed info (for chapter import) and the language
+    /// tracks that were exported alongside the main .ogg.</summary>
+    public sealed record ProducedVideo(
+        string M2vPath,
+        MediaInfo? Media,
+        bool ImportChapters,
+        IReadOnlyList<(string Suffix, string LanguageName)> Languages);
+
     private readonly AppSettings _settings;
     private readonly ObservableCollection<ConvertSourceItem> _sources = [];
     private string? _ffmpeg;
     private CancellationTokenSource? _cts;
     private bool _converting;
     private bool _updatingPerFile;
+    private bool _projectOpen;
 
-    /// <summary>Full paths of the .m2v files successfully created this session.</summary>
-    public List<string> ProducedM2v { get; } = [];
+    /// <summary>The videos successfully converted this session, in order.</summary>
+    public List<ProducedVideo> Produced { get; } = [];
 
     public bool AddToProject => AutoAddCheck.IsChecked == true;
 
@@ -104,6 +126,7 @@ public partial class ConvertVideoDialog : Window
     public ConvertVideoDialog(AppSettings settings, bool projectOpen, IReadOnlyList<string>? seedFiles = null) : this()
     {
         _settings = settings;
+        _projectOpen = projectOpen;
 
         AutoAddCheck.IsChecked = projectOpen;
         AutoAddCheck.IsEnabled = projectOpen;
@@ -318,7 +341,7 @@ public partial class ConvertVideoDialog : Window
             }
             choices.Add("Custom…");
             ResCombo.ItemsSource = choices;
-            ResCombo.IsEnabled = item != null && !_converting;
+            ResCombo.IsEnabled = item != null && !_converting && AudioOnlyCheck.IsChecked != true;
 
             int selected = 0;
             if (item != null)
@@ -352,6 +375,46 @@ public partial class ConvertVideoDialog : Window
             {
                 ResWarning.IsVisible = false;
             }
+
+            // Chapters → scenes (only meaningful when the video joins the project).
+            if (item?.Media is { Chapters.Count: > 0 } cm)
+            {
+                ChaptersCheck.IsVisible = ChaptersHint.IsVisible = true;
+                ChaptersCheck.IsEnabled = !_converting && AutoAddCheck.IsChecked == true;
+                ChaptersCheck.Content = $"Import {cm.Chapters.Count} chapters as scenes after adding " +
+                                        "(named 'Chapter X (imported)')";
+                ChaptersCheck.IsChecked = item.ImportChapters;
+            }
+            else
+            {
+                ChaptersCheck.IsVisible = ChaptersHint.IsVisible = false;
+            }
+
+            // Extra language tracks (everything except the chosen main track).
+            LangList.Children.Clear();
+            if (item?.Media is { AudioTracks.Count: > 1 } lm)
+            {
+                LangPanel.IsVisible = true;
+                string baseName = System.IO.Path.GetFileNameWithoutExtension(item.Path);
+                foreach (AudioTrackInfo t in lm.AudioTracks)
+                {
+                    if (t.Ordinal == item.AudioTrack) continue;
+                    var cb = new CheckBox
+                    {
+                        Content = $"{t.Display()}   →   {baseName}{LanguageCodes.SuffixFor(t)}.ogg",
+                        IsChecked = item.LanguageTracks.Contains(t.Ordinal),
+                        Tag = t.Ordinal,
+                        FontSize = 12,
+                        IsEnabled = !_converting,
+                    };
+                    cb.Click += OnLangTrackToggled;
+                    LangList.Children.Add(cb);
+                }
+            }
+            else
+            {
+                LangPanel.IsVisible = false;
+            }
         }
         finally
         {
@@ -359,11 +422,73 @@ public partial class ConvertVideoDialog : Window
         }
     }
 
+    private void OnChaptersToggled(object? sender, RoutedEventArgs e)
+    {
+        if (_updatingPerFile || Sel is not { } item) return;
+        item.ImportChapters = ChaptersCheck.IsChecked == true;
+    }
+
+    private void OnAutoAddToggled(object? sender, RoutedEventArgs e) => RefreshPerFileUi();
+
+    private void OnAudioOnlyToggled(object? sender, RoutedEventArgs e)
+    {
+        UpdateVideoControlsEnabled(!_converting);
+        UpdateCommandPreview();
+    }
+
+    /// <summary>Video-pass controls (quality + resolution) are meaningless in
+    /// audio-only mode; grey them out as one group.</summary>
+    private void UpdateVideoControlsEnabled(bool baseOn)
+    {
+        bool on = baseOn && AudioOnlyCheck.IsChecked != true;
+        VqHighest.IsEnabled = VqBalanced.IsEnabled = VqCustom.IsEnabled = on;
+        VideoBitrateBox.IsEnabled = on && VqCustom.IsChecked == true;
+        ResCombo.IsEnabled = on && Sel != null;
+        WidthBox.IsEnabled = HeightBox.IsEnabled = on;
+    }
+
+    private void OnLangTrackToggled(object? sender, RoutedEventArgs e)
+    {
+        if (_updatingPerFile || Sel is not { } item ||
+            sender is not CheckBox cb || cb.Tag is not int ordinal) return;
+        if (cb.IsChecked == true) item.LanguageTracks.Add(ordinal);
+        else item.LanguageTracks.Remove(ordinal);
+        UpdateCommandPreview();
+    }
+
+    /// <summary>The full FFmpeg job for one source, honouring its per-file audio
+    /// track, downscale, and language-track selections (suffixes deduped, e.g.
+    /// two Spanish tracks become -spa and -spa2).</summary>
+    private FfmpegJob BuildJobFor(ConvertSourceItem s, ConvertOptions o)
+    {
+        List<(int Track, string Suffix, string LanguageName)>? langs = null;
+        if (s.Media != null && s.LanguageTracks.Count > 0)
+        {
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            langs = [];
+            foreach (int ordinal in s.LanguageTracks.OrderBy(x => x))
+            {
+                if (ordinal == s.AudioTrack) continue;
+                AudioTrackInfo? track = s.Media.AudioTracks.FirstOrDefault(t => t.Ordinal == ordinal);
+                if (track == null) continue;
+                string suffix = LanguageCodes.Unique(LanguageCodes.SuffixFor(track), taken);
+                langs.Add((ordinal, suffix, LanguageCodes.DisplayName(track.Language)));
+            }
+        }
+        return FfmpegCommand.Build(s.Path, o, null, s.AudioTrack, s.Scale, langs);
+    }
+
     private void OnTrackChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_updatingPerFile) return;
         if (Sel is { } item && TrackCombo.SelectedIndex >= 0)
+        {
             item.AudioTrack = TrackCombo.SelectedIndex;
+            // The main track can't also be a language track; rebuild the list so
+            // the new main disappears from it and the old one reappears.
+            item.LanguageTracks.Remove(item.AudioTrack);
+            RefreshPerFileUi();
+        }
         UpdateCommandPreview();
     }
 
@@ -426,6 +551,7 @@ public partial class ConvertVideoDialog : Window
 
     private ConvertOptions ReadOptions() => new()
     {
+        AudioOnly = AudioOnlyCheck.IsChecked == true,
         Video = VqHighest.IsChecked == true ? VideoQuality.Highest
               : VqBalanced.IsChecked == true ? VideoQuality.Balanced
               : VideoQuality.Custom,
@@ -442,16 +568,21 @@ public partial class ConvertVideoDialog : Window
         ConvertOptions o = ReadOptions();
         string exe = _ffmpeg ?? "ffmpeg";
         ConvertSourceItem? item = Sel ?? _sources.FirstOrDefault();
-        string sample = item?.Path ?? @"C:\videos\input.mkv";
-        FfmpegJob job = FfmpegCommand.Build(sample, o, null, item?.AudioTrack ?? 0, item?.Scale);
+        FfmpegJob job = item != null
+            ? BuildJobFor(item, o)
+            : FfmpegCommand.Build(@"C:\videos\input.mkv", o);
 
-        string text = FfmpegCommand.Display(exe, job.VideoArgs);
-        if (job.AudioArgs != null)
-            text += Environment.NewLine + Environment.NewLine + FfmpegCommand.Display(exe, job.AudioArgs);
-        CommandBox.Text = text;
+        var commands = new List<string>();
+        if (job.VideoArgs.Count > 0) commands.Add(FfmpegCommand.Display(exe, job.VideoArgs));
+        if (job.AudioArgs != null) commands.Add(FfmpegCommand.Display(exe, job.AudioArgs));
+        foreach (FfmpegLangJob lang in job.LanguageAudio)
+            commands.Add(FfmpegCommand.Display(exe, lang.Args));
+        CommandBox.Text = commands.Count > 0
+            ? string.Join(Environment.NewLine + Environment.NewLine, commands)
+            : "(nothing to do — audio only is on, but audio creation is unticked)";
 
         CommandNote.Text = item != null && _sources.Count > 1
-            ? $"shown for {item.Name} — each file converts with its own track & resolution"
+            ? $"shown for {item.Name} — each file converts with its own choices"
             : "";
     }
 
@@ -468,6 +599,12 @@ public partial class ConvertVideoDialog : Window
     private async void OnConvert(object? sender, RoutedEventArgs e)
     {
         if (_converting || _ffmpeg == null || _sources.Count == 0) return;
+        if (AudioOnlyCheck.IsChecked == true && AudioCheck.IsChecked != true)
+        {
+            ProgressArea.IsVisible = true;
+            ProgressStatus.Text = "Audio only is on, but audio creation is unticked — nothing to do.";
+            return;
+        }
 
         _converting = true;
         _cts = new CancellationTokenSource();
@@ -482,26 +619,33 @@ public partial class ConvertVideoDialog : Window
         ConvProgress.Value = 0;
 
         ConvertOptions o = ReadOptions();
-        var jobs = _sources.Select(s => FfmpegCommand.Build(s.Path, o, null, s.AudioTrack, s.Scale)).ToList();
+        List<ConvertSourceItem> sources = _sources.ToList();
+        var jobs = sources.Select(s => BuildJobFor(s, o)).ToList();
 
         int done = 0, failed = 0;
         for (int i = 0; i < jobs.Count && !ct.IsCancellationRequested; i++)
         {
             FfmpegJob job = jobs[i];
+            ConvertSourceItem sourceItem = sources[i];
             string name = Path.GetFileName(job.InputPath);
 
-            ProgressStatus.Text = $"File {i + 1}/{jobs.Count}: {name} — video…";
-            ConvProgress.Value = 0;
             AppendOutput($"── {name}  →  {Path.GetFileName(job.M2vPath)} ──");
-
-            FfmpegTool.RunResult vr = await RunOne(job.VideoArgs, ct);
-            if (!vr.Ok)
+            if (job.VideoArgs.Count > 0)
             {
-                failed++;
-                AppendOutput(ct.IsCancellationRequested ? "cancelled." : $"video FAILED (exit {vr.ExitCode}). {vr.Tail}");
-                continue;
+                ProgressStatus.Text = $"File {i + 1}/{jobs.Count}: {name} — video…";
+                ConvProgress.Value = 0;
+                FfmpegTool.RunResult vr = await RunOne(job.VideoArgs, ct);
+                if (!vr.Ok)
+                {
+                    failed++;
+                    AppendOutput(ct.IsCancellationRequested ? "cancelled." : $"video FAILED (exit {vr.ExitCode}). {vr.Tail}");
+                    continue;
+                }
             }
-            if (!ProducedM2v.Contains(job.M2vPath)) ProducedM2v.Add(job.M2vPath);
+            else
+            {
+                AppendOutput("audio only — video pass skipped.");
+            }
 
             if (job.AudioArgs != null && !ct.IsCancellationRequested)
             {
@@ -511,6 +655,28 @@ public partial class ConvertVideoDialog : Window
                 if (!ar.Ok && !ct.IsCancellationRequested)
                     AppendOutput($"⚠ audio failed (exit {ar.ExitCode}) — the .m2v is still fine. {ar.Tail}");
             }
+
+            var exportedLangs = new List<(string Suffix, string LanguageName)>();
+            foreach (FfmpegLangJob lang in job.LanguageAudio)
+            {
+                if (ct.IsCancellationRequested) break;
+                ProgressStatus.Text = $"File {i + 1}/{jobs.Count}: {name} — language track {lang.Suffix}…";
+                ConvProgress.Value = 0;
+                FfmpegTool.RunResult lr = await RunOne(lang.Args, ct);
+                if (lr.Ok)
+                {
+                    exportedLangs.Add((lang.Suffix, lang.LanguageName));
+                    AppendOutput($"language track {lang.Suffix} → {Path.GetFileName(lang.OggPath)}");
+                }
+                else if (!ct.IsCancellationRequested)
+                {
+                    AppendOutput($"⚠ language track {lang.Suffix} failed (exit {lr.ExitCode}). {lr.Tail}");
+                }
+            }
+
+            if (!Produced.Any(p => p.M2vPath == job.M2vPath))
+                Produced.Add(new ProducedVideo(job.M2vPath, sourceItem.Media,
+                    sourceItem.ImportChapters, exportedLangs));
             done++;
         }
 
@@ -525,7 +691,7 @@ public partial class ConvertVideoDialog : Window
         _cts = null;
         SetInputsEnabled(true);
         ConvertButton.Content = "▶ Convert";
-        CloseButton.Content = ProducedM2v.Count > 0 && AddToProject ? "Add & Close" : "Close";
+        CloseButton.Content = Produced.Count > 0 && AddToProject ? "Add & Close" : "Close";
         UpdateConvertEnabled();
         UpdateSourceUi();
         RefreshPerFileUi();
@@ -565,13 +731,14 @@ public partial class ConvertVideoDialog : Window
         AddFolderButton.IsEnabled = on;
         ClearSourcesButton.IsEnabled = on && _sources.Count > 0;
         RemoveSourceButton.IsEnabled = on && Sel != null;
-        VqHighest.IsEnabled = VqBalanced.IsEnabled = VqCustom.IsEnabled = on;
-        VideoBitrateBox.IsEnabled = on && VqCustom.IsChecked == true;
+        AudioOnlyCheck.IsEnabled = on;
+        UpdateVideoControlsEnabled(on);
         TrackCombo.IsEnabled = on && Sel?.Media is { AudioTracks.Count: > 0 };
-        ResCombo.IsEnabled = on && Sel != null;
-        WidthBox.IsEnabled = HeightBox.IsEnabled = on;
         AudioCheck.IsEnabled = on;
         AudioPanel.IsEnabled = on && AudioCheck.IsChecked == true;
+        ChaptersCheck.IsEnabled = on && AutoAddCheck.IsChecked == true;
+        AutoAddCheck.IsEnabled = on && _projectOpen;
+        foreach (Control child in LangList.Children) child.IsEnabled = on;
     }
 
     private void OnClose(object? sender, RoutedEventArgs e)

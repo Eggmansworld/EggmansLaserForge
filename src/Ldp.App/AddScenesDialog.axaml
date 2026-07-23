@@ -1,0 +1,20 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.AddScenesDialog"
+        Title="Add Scenes to Storyboard"
+        Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource BgWindow}">
+    <StackPanel Margin="20" Spacing="12">
+        <TextBlock Name="MessageText" TextWrapping="Wrap" FontSize="14"
+                   Foreground="{DynamicResource FgPrimary}" Text=""/>
+        <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource FgMuted}"
+                   Text="Linked: each scene's Success port is wired to the next, in the order they appear in the scenes list — a ready-made filmstrip. Unlinked: the nodes are placed loose for manual wiring."/>
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" Click="OnCancel"/>
+            <Button Content="Place unlinked" Click="OnUnlinked"/>
+            <Button Name="LinkButton" Content="⛓ Link in scene order" Click="OnLinked"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

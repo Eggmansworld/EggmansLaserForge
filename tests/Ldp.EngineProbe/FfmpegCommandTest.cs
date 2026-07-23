@@ -95,7 +95,102 @@ public static class FfmpegCommandTest
         Check("ffmpeg: m2v/txt are not convertible",
             !FfmpegCommand.IsConvertibleInput("a.m2v") && !FfmpegCommand.IsConvertibleInput("a.txt"));
 
+        // Language tracks: each selected extra stream exports its own suffixed ogg
+        // with the same audio settings, main .ogg untouched.
+        FfmpegJob multi = FfmpegCommand.Build(input, new ConvertOptions(), dir, audioTrack: 0,
+            languageTracks: [(6, "-fre", "French"), (4, "-spa", "Spanish")]);
+        Check("ffmpeg: language jobs count", multi.LanguageAudio.Count == 2);
+        Check("ffmpeg: language ogg naming",
+            multi.LanguageAudio[0].OggPath == Path.Combine(dir, "clip-fre.ogg") &&
+            multi.LanguageAudio[1].OggPath == Path.Combine(dir, "clip-spa.ogg"));
+        Check("ffmpeg: language args map their own stream", multi.LanguageAudio[0].Args.SequenceEqual(
+            ["-y", "-i", input, "-ss", "00:00:00.110", "-vn", "-c:a", "libvorbis",
+             "-ar", "44100", "-map", "0:a:6", "-ac", "2", "-b:a", "160k", Path.Combine(dir, "clip-fre.ogg")]));
+        Check("ffmpeg: language carries display name",
+            multi.LanguageAudio[0].LanguageName == "French" && multi.LanguageAudio[0].Suffix == "-fre");
+        Check("ffmpeg: main ogg unaffected by languages", multi.OggPath == ogg);
+        Check("ffmpeg: no languages -> empty list",
+            FfmpegCommand.Build(input, new ConvertOptions(), dir).LanguageAudio.Count == 0);
+        Check("ffmpeg: audio off drops language jobs too",
+            FfmpegCommand.Build(input, new ConvertOptions { CreateAudio = false }, dir,
+                languageTracks: [(1, "-fre", "French")]).LanguageAudio.Count == 0);
+
+        // Audio-only mode: no video pass, but the m2v path is still computed for
+        // pairing, and audio + language jobs are built exactly as usual.
+        FfmpegJob audioOnly = FfmpegCommand.Build(input, new ConvertOptions { AudioOnly = true }, dir,
+            languageTracks: [(2, "-fre", "French")]);
+        Check("ffmpeg: audio-only has no video args", audioOnly.VideoArgs.Count == 0);
+        Check("ffmpeg: audio-only keeps m2v path for pairing", audioOnly.M2vPath == m2v);
+        Check("ffmpeg: audio-only still builds main ogg args",
+            audioOnly.AudioArgs != null && audioOnly.OggPath == ogg);
+        Check("ffmpeg: audio-only still builds language jobs",
+            audioOnly.LanguageAudio is [{ Suffix: "-fre" }]);
+        Check("ffmpeg: normal mode still has video args",
+            FfmpegCommand.Build(input, new ConvertOptions(), dir).VideoArgs.Count > 0);
+
         RunMediaInfo(Check);
+        RunChaptersAndLanguages(Check);
+    }
+
+    /// <summary>Chapter parsing + chapter→scene math + language-code helpers.</summary>
+    private static void RunChaptersAndLanguages(Action<string, bool> Check)
+    {
+        // Chapter lines exactly as the real Alita dump prints them.
+        MediaInfo info = MediaInfo.Parse("""
+              Duration: 02:01:57.38, start: 0.000000, bitrate: 62567 kb/s
+              Chapters:
+                Chapter #0:0: start 0.000000, end 208.708500
+                  Metadata:
+                    title           : Chapter 01
+                Chapter #0:1: start 208.708500, end 471.679542
+                  Metadata:
+                    title           : Chapter 02
+                Chapter #0:2: start 471.679542, end 607.648708
+              Stream #0:0(eng): Video: hevc (Main 10), yuv420p10le, 3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps
+              Stream #0:1(eng): Audio: truehd, 48000 Hz, 7.1, s32 (24 bit) (default)
+                Metadata:
+                  title           : TrueHD 7.1 Atmos
+            """);
+        Check("chapters: three parsed", info.Chapters.Count == 3);
+        Check("chapters: numbered from 1",
+            info.Chapters[0].Number == 1 && info.Chapters[2].Number == 3);
+        Check("chapters: times parsed",
+            Math.Abs(info.Chapters[1].StartSeconds - 208.7085) < 0.0001 &&
+            Math.Abs(info.Chapters[1].EndSeconds - 471.679542) < 0.0001);
+        Check("chapters: chapter title not mistaken for audio title",
+            info.AudioTracks is [{ Title: "TrueHD 7.1 Atmos" }]);
+
+        // Chapters → scenes: consecutive, gap-free, standardized names.
+        List<Clip> scenes = ChapterImport.BuildScenes(info.Chapters, 23.98, globalBase: 1000, pictureCount: 200000);
+        Check("chapters: one scene per chapter", scenes.Count == 3);
+        Check("chapters: standardized names",
+            scenes[0].Name == "Chapter 1 (imported)" && scenes[2].Name == "Chapter 3 (imported)");
+        Check("chapters: scene 1 spans to chapter 2 start",
+            scenes[0].StartFrame == 1000 && scenes[0].EndFrame == 1000 + 5005 - 1);
+        Check("chapters: scenes are contiguous",
+            scenes[1].StartFrame == scenes[0].EndFrame + 1 && scenes[2].StartFrame == scenes[1].EndFrame + 1);
+        Check("chapters: last scene ends at its own end time",
+            scenes[2].EndFrame == 1000 + (int)Math.Round(607.648708 * 23.98) - 1);
+
+        // Clamping: a chapter past the video's end is clamped; degenerate dropped.
+        List<Clip> clamped = ChapterImport.BuildScenes(
+            [new ChapterInfo(1, 0, 10), new ChapterInfo(2, 10, 10.001), new ChapterInfo(3, 10.001, 99999)],
+            fps: 30, globalBase: 0, pictureCount: 600);
+        Check("chapters: degenerate chapter skipped, numbering kept",
+            clamped.Count == 2 && clamped[1].Name == "Chapter 3 (imported)");
+        Check("chapters: clamped to video end", clamped[1].EndFrame == 599);
+
+        // Language code helpers.
+        Check("lang: display names", LanguageCodes.DisplayName("fre") == "French" &&
+            LanguageCodes.DisplayName("spa") == "Spanish" && LanguageCodes.DisplayName("und") == "Unknown" &&
+            LanguageCodes.DisplayName("xyz") == "Xyz");
+        var freTrack = new AudioTrackInfo(3, "dts", "fre", "5.1(side)", 48000, false, "DTS 5.1");
+        var untagged = new AudioTrackInfo(2, "aac", "", "stereo", 44100, false, "");
+        Check("lang: suffix from code", LanguageCodes.SuffixFor(freTrack) == "-fre");
+        Check("lang: untagged falls back to ordinal", LanguageCodes.SuffixFor(untagged) == "-a3");
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Check("lang: dedupe -spa/-spa2",
+            LanguageCodes.Unique("-spa", taken) == "-spa" && LanguageCodes.Unique("-spa", taken) == "-spa2");
     }
 
     /// <summary>MediaInfo parsing against a faithful excerpt of the real Alita 4K

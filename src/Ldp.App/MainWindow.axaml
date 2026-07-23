@@ -28,6 +28,8 @@
                         </MenuItem>
                         <MenuItem Header="_Tools" Padding="10,6">
                             <MenuItem Name="ConvertVideoButton" Header="🎞 Convert Video → M2V…" Click="OnConvertVideo"/>
+                            <MenuItem Name="ImportChaptersButton" Header="🕮 Import Chapters as Scenes…" IsEnabled="False"
+                                      Click="OnImportChapters"/>
                         </MenuItem>
                         <MenuItem Header="_Help" Padding="10,6">
                             <MenuItem Header="About Eggman's LaserForge…" Click="OnAbout"/>
@@ -154,6 +156,8 @@
                     <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
                         <Button Name="AddVideoButton" Content="＋ Add Video…"
                                 HorizontalAlignment="Stretch" Focusable="False" IsEnabled="False" Click="OnAddVideo"/>
+                        <Button Name="RenameVideoButton" Content="✎ Rename Selected Video…"
+                                HorizontalAlignment="Stretch" Focusable="False" IsEnabled="False" Click="OnRenameVideo"/>
                         <Button Name="RemoveVideoButton" Content="✕ Remove Selected Video"
                                 HorizontalAlignment="Stretch" Focusable="False" IsEnabled="False" Click="OnRemoveVideo"/>
                     </StackPanel>
@@ -226,7 +230,7 @@
                     <TextBlock Grid.Row="0" Text="SCENES" Foreground="{DynamicResource FgFaint}" FontSize="11"
                                FontWeight="Bold" Margin="4,0,0,6"/>
                     <ListBox Grid.Row="1" Name="ClipList" Background="Transparent" SelectionChanged="OnClipSelected"
-                             Focusable="False" DoubleTapped="OnGotoClip">
+                             SelectionMode="Multiple" Focusable="False" DoubleTapped="OnGotoClip">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="app:ClipItem">
                                 <DockPanel Margin="2">
@@ -244,6 +248,10 @@
                         <StackPanel Orientation="Horizontal" Spacing="6">
                             <Button Name="PlayClipButton" Content="▶ Play Scene" Focusable="False" IsEnabled="False" Click="OnPlayClip"/>
                             <Button Name="GotoClipButton" Content="Go to Start" Focusable="False" IsEnabled="False" Click="OnGotoClip"/>
+                            <Button Name="RenameClipButton" Content="✎" Focusable="False" Width="32" IsEnabled="False"
+                                    Click="OnRenameClip" ToolTip.Tip="Rename scene"/>
+                            <Button Name="ThumbClipButton" Content="📷" Focusable="False" Width="32" IsEnabled="False"
+                                    Click="OnSetThumbnail" ToolTip.Tip="Use the current frame as this scene's thumbnail"/>
                             <Button Name="DeleteClipButton" Content="Delete" Focusable="False" IsEnabled="False" Click="OnDeleteClip"/>
                             <Button Name="MoveClipUpButton" Content="▲" Focusable="False" Width="32" IsEnabled="False"
                                     Click="OnMoveClipUp" ToolTip.Tip="Move scene up"/>

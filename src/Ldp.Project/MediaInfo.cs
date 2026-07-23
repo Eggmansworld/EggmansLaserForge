@@ -34,11 +34,15 @@ public sealed record AudioTrackInfo(
     }
 }
 
+/// <summary>One chapter marker of a source video: its 1-based number and its time
+/// span in seconds on the source timeline (which the converted .m2v shares).</summary>
+public sealed record ChapterInfo(int Number, double StartSeconds, double EndSeconds);
+
 /// <summary>
 /// What LaserForge needs to know about a source video before converting it:
-/// resolution/fps and every audio track with pickable metadata. Built by parsing
-/// FFmpeg's own <c>-i</c> stream dump (stderr) so it works with the exact FFmpeg
-/// the user pointed at — no extra probing tool required.
+/// resolution/fps, every audio track with pickable metadata, and any chapter
+/// markers. Built by parsing FFmpeg's own <c>-i</c> stream dump (stderr) so it
+/// works with the exact FFmpeg the user pointed at — no extra probing tool required.
 /// </summary>
 public sealed class MediaInfo
 {
@@ -48,6 +52,7 @@ public sealed class MediaInfo
     public string VideoCodec { get; private set; } = "";
     public TimeSpan? Duration { get; private set; }
     public List<AudioTrackInfo> AudioTracks { get; } = [];
+    public List<ChapterInfo> Chapters { get; } = [];
 
     public bool HasVideo => Width > 0 && Height > 0;
 
@@ -78,6 +83,9 @@ public sealed class MediaInfo
     private static readonly Regex SizeRx = new(@"(?<w>\d{2,5})x(?<h>\d{2,5})", RegexOptions.Compiled);
     private static readonly Regex FpsRx = new(@"(?<fps>\d+(?:\.\d+)?)\s*fps", RegexOptions.Compiled);
     private static readonly Regex HzRx = new(@"(?<hz>\d+)\s*Hz", RegexOptions.Compiled);
+    private static readonly Regex ChapterRx = new(
+        @"^\s*Chapter\s+#\d+:\d+:\s*start\s+(?<s>\d+(?:\.\d+)?),\s*end\s+(?<e>\d+(?:\.\d+)?)",
+        RegexOptions.Compiled);
 
     /// <summary>Parses the stderr text of <c>ffmpeg -i file</c> (the run "fails"
     /// with "At least one output file must be specified" — that's expected).</summary>
@@ -95,6 +103,16 @@ public sealed class MediaInfo
                 double sec = double.Parse(d.Groups["s"].Value, CultureInfo.InvariantCulture);
                 info.Duration = new TimeSpan(0, int.Parse(d.Groups["h"].Value), int.Parse(d.Groups["m"].Value), 0)
                                 + TimeSpan.FromSeconds(sec);
+            }
+
+            if (ChapterRx.Match(line) is { Success: true } ch)
+            {
+                lastWasAudio = false;
+                info.Chapters.Add(new ChapterInfo(
+                    info.Chapters.Count + 1,
+                    double.Parse(ch.Groups["s"].Value, CultureInfo.InvariantCulture),
+                    double.Parse(ch.Groups["e"].Value, CultureInfo.InvariantCulture)));
+                continue;
             }
 
             Match m = StreamRx.Match(line);

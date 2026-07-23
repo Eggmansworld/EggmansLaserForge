@@ -37,6 +37,11 @@ public sealed class ConvertOptions
     public VideoQuality Video { get; set; } = VideoQuality.Highest;
     public int CustomVideoBitrateK { get; set; } = 6000;
 
+    /// <summary>Skip the video pass entirely and only produce .ogg audio — for
+    /// coming back to an already-converted .m2v to add language tracks (or redo
+    /// the audio) without re-encoding the picture.</summary>
+    public bool AudioOnly { get; set; }
+
     public bool CreateAudio { get; set; } = true;
     public AudioQuality Audio { get; set; } = AudioQuality.Standard;
     public int CustomAudioBitrateK { get; set; } = 160;
@@ -54,14 +59,24 @@ public sealed class ConvertOptions
     public int EffectiveAudioBitrateK => Audio == AudioQuality.Custom ? CustomAudioBitrateK : 160;
 }
 
+/// <summary>One extra "language track" export: another audio stream of the same
+/// source, written as <c>{video name}{Suffix}.ogg</c> (e.g. <c>Alita-fre.ogg</c>)
+/// for Hypseus's LangOpt language switching.</summary>
+public sealed record FfmpegLangJob(
+    IReadOnlyList<string> Args,
+    string OggPath,
+    string Suffix,
+    string LanguageName);
+
 /// <summary>One file's conversion: the two FFmpeg invocations (video, then audio),
-/// exactly as the author's batch script runs them.</summary>
+/// exactly as the author's batch script runs them, plus any language-track exports.</summary>
 public sealed record FfmpegJob(
     string InputPath,
     IReadOnlyList<string> VideoArgs,
     string M2vPath,
     IReadOnlyList<string>? AudioArgs,
-    string? OggPath);
+    string? OggPath,
+    IReadOnlyList<FfmpegLangJob> LanguageAudio);
 
 /// <summary>
 /// Builds the FFmpeg command lines that turn a source video (mkv/mp4/webm, …) into a
@@ -92,45 +107,64 @@ public static class FfmpegCommand
 
     /// <summary>Builds the job for one input file. Outputs land next to the source
     /// (or in <paramref name="outputDir"/>) under the source's base name.
-    /// <paramref name="audioTrack"/> selects which audio stream to convert
-    /// (<c>-map 0:a:{n}</c> — mapping ALL tracks, as <c>-map a</c> does, breaks on
-    /// multi-language sources). <paramref name="scale"/> optionally downscales the
-    /// picture (aspect handled by the caller; Hypseus tops out at 1080p).</summary>
+    /// <paramref name="audioTrack"/> selects which audio stream becomes the main
+    /// .ogg (<c>-map 0:a:{n}</c> — mapping ALL tracks, as <c>-map a</c> does, breaks
+    /// on multi-language sources). <paramref name="scale"/> optionally downscales
+    /// the picture (aspect handled by the caller; Hypseus tops out at 1080p).
+    /// <paramref name="languageTracks"/> lists extra audio streams to export as
+    /// <c>{base}{suffix}.ogg</c> language tracks with the same audio settings.</summary>
     public static FfmpegJob Build(string inputPath, ConvertOptions o, string? outputDir = null,
-                                  int audioTrack = 0, (int Width, int Height)? scale = null)
+                                  int audioTrack = 0, (int Width, int Height)? scale = null,
+                                  IReadOnlyList<(int Track, string Suffix, string LanguageName)>? languageTracks = null)
     {
         string dir = outputDir ?? Path.GetDirectoryName(Path.GetFullPath(inputPath)) ?? ".";
         string baseName = Path.GetFileNameWithoutExtension(inputPath);
         string m2v = Path.Combine(dir, baseName + ".m2v");
         string ogg = Path.Combine(dir, baseName + ".ogg");
 
-        var video = new List<string> { "-y", "-i", inputPath };
-        if (scale is { } s)
-            video.AddRange(["-vf", $"scale={s.Width}:{s.Height}"]);
-        video.Add("-an");
-        video.AddRange(o.Video switch
+        // Audio-only mode leaves the video args empty: the .m2v already exists
+        // and its path is kept only so the caller can pair outputs to it.
+        var video = new List<string>();
+        if (!o.AudioOnly)
         {
-            VideoQuality.Highest => (IEnumerable<string>)["-qscale:v", "1"],
-            VideoQuality.Balanced => ["-qscale:v", "4", "-b:v", "6000k"],
-            VideoQuality.Custom => ["-qscale:v", "4", "-b:v", $"{o.CustomVideoBitrateK}k"],
-            _ => ["-qscale:v", "1"],
-        });
-        video.AddRange(["-codec:v", "mpeg2video", m2v]);
-
-        List<string>? audio = null;
-        if (o.CreateAudio)
-        {
-            audio = ["-y", "-i", inputPath];
-            if (o.AudioOffsetMs > 0)
-                audio.AddRange(["-ss", FormatOffset(o.AudioOffsetMs)]);
-            audio.AddRange(["-vn", "-c:a", "libvorbis", "-ar", "44100",
-                            "-map", $"0:a:{Math.Max(0, audioTrack)}"]);
-            if (o.DownmixStereo)
-                audio.AddRange(["-ac", "2"]);
-            audio.AddRange(["-b:a", $"{o.EffectiveAudioBitrateK}k", ogg]);
+            video.AddRange(["-y", "-i", inputPath]);
+            if (scale is { } s)
+                video.AddRange(["-vf", $"scale={s.Width}:{s.Height}"]);
+            video.Add("-an");
+            video.AddRange(o.Video switch
+            {
+                VideoQuality.Highest => (IEnumerable<string>)["-qscale:v", "1"],
+                VideoQuality.Balanced => ["-qscale:v", "4", "-b:v", "6000k"],
+                VideoQuality.Custom => ["-qscale:v", "4", "-b:v", $"{o.CustomVideoBitrateK}k"],
+                _ => ["-qscale:v", "1"],
+            });
+            video.AddRange(["-codec:v", "mpeg2video", m2v]);
         }
 
-        return new FfmpegJob(inputPath, video, m2v, audio, o.CreateAudio ? ogg : null);
+        List<string> AudioArgsFor(int track, string outPath)
+        {
+            List<string> args = ["-y", "-i", inputPath];
+            if (o.AudioOffsetMs > 0)
+                args.AddRange(["-ss", FormatOffset(o.AudioOffsetMs)]);
+            args.AddRange(["-vn", "-c:a", "libvorbis", "-ar", "44100",
+                           "-map", $"0:a:{Math.Max(0, track)}"]);
+            if (o.DownmixStereo)
+                args.AddRange(["-ac", "2"]);
+            args.AddRange(["-b:a", $"{o.EffectiveAudioBitrateK}k", outPath]);
+            return args;
+        }
+
+        List<string>? audio = o.CreateAudio ? AudioArgsFor(audioTrack, ogg) : null;
+
+        List<FfmpegLangJob> langs = [];
+        if (o.CreateAudio && languageTracks != null)
+            foreach ((int track, string suffix, string name) in languageTracks)
+            {
+                string langOgg = Path.Combine(dir, baseName + suffix + ".ogg");
+                langs.Add(new FfmpegLangJob(AudioArgsFor(track, langOgg), langOgg, suffix, name));
+            }
+
+        return new FfmpegJob(inputPath, video, m2v, audio, o.CreateAudio ? ogg : null, langs);
     }
 
     /// <summary>Formats a millisecond offset as FFmpeg's <c>HH:MM:SS.mmm</c> timestamp

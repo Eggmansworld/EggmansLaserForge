@@ -72,20 +72,82 @@ public partial class StoryboardView : UserControl
         Viewport.AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
-    /// <summary>Drag-and-drop data format carrying a clip id from the scene bin.</summary>
+    /// <summary>Drag-and-drop data format carrying one or more clip ids
+    /// (semicolon-joined, in scenes-list order) from the scene bin.</summary>
     public static readonly DataFormat<string> ClipDragFormat =
-        DataFormat.CreateStringApplicationFormat("ldp-clip-id");
+        DataFormat.CreateStringApplicationFormat("ldp-clip-ids");
 
-    private void OnDrop(object? sender, DragEventArgs e)
+    private async void OnDrop(object? sender, DragEventArgs e)
     {
         if (_project == null || _clipLookup == null) return;
-        if (e.DataTransfer.TryGetValue(ClipDragFormat) is not { } idText ||
-            !Guid.TryParse(idText, out Guid clipId)) return;
-        if (_clipLookup(clipId) is not { } item) return;
+        if (e.DataTransfer.TryGetValue(ClipDragFormat) is not { } idText) return;
+
+        List<Clip> clips = idText.Split(';', StringSplitOptions.RemoveEmptyEntries)
+            .Select(t => Guid.TryParse(t, out Guid id) ? _clipLookup(id)?.Clip : null)
+            .Where(c => c != null)
+            .Select(c => c!)
+            .ToList();
+        if (clips.Count == 0) return;
+        e.Handled = true;
 
         Point world = ToWorld(e.GetPosition(Viewport));
-        AddClipNode(item.Clip, autoChain: false, at: world);
-        e.Handled = true;
+        if (clips.Count == 1)
+        {
+            AddClipNode(clips[0], autoChain: false, at: world);
+            return;
+        }
+
+        // Batch drop: let the author choose ready-linked (scene-list order) or loose.
+        if (TopLevel.GetTopLevel(this) is not Window owner) return;
+        var dialog = new AddScenesDialog(clips.Count);
+        await dialog.ShowDialog(owner);
+        if (dialog.LinkInOrder is not { } link) return;
+        AddClipNodes(clips, link, world);
+    }
+
+    /// <summary>
+    /// Adds many scenes at once in rows of four, starting at <paramref name="at"/>
+    /// (or right of the current graph). With <paramref name="linkInOrder"/> each
+    /// scene's Success port is wired to the next, in the given (scenes-list) order.
+    /// </summary>
+    public void AddClipNodes(IReadOnlyList<Clip> clips, bool linkInOrder, Point? at = null)
+    {
+        if (_project == null || clips.Count == 0) return;
+        StoryGraph graph = _project.Graph;
+
+        double startX = 60, startY = 240;
+        if (at is { } p)
+        {
+            startX = p.X - NodeW / 2;
+            startY = p.Y - NodeH / 2;
+        }
+        else if (graph.Nodes.Count > 0)
+        {
+            StoryNode rightmost = graph.Nodes.OrderByDescending(n => n.X).First();
+            startX = rightmost.X + NodeW + 70;
+            startY = rightmost.Y;
+        }
+
+        const int perRow = 4;
+        const double gapX = 70, gapY = 60;
+        StoryNode? previous = null;
+        for (int i = 0; i < clips.Count; i++)
+        {
+            var node = new StoryNode
+            {
+                Kind = NodeKind.Clip,
+                ClipId = clips[i].Id,
+                X = startX + i % perRow * (NodeW + gapX),
+                Y = startY + i / perRow * (NodeH + gapY),
+            };
+            graph.Nodes.Add(node);
+            if (linkInOrder && previous != null)
+                graph.Edges.Add(new StoryEdge { FromNode = previous.Id, FromPort = PortKind.Success, ToNode = node.Id });
+            previous = node;
+        }
+
+        Rebuild();
+        GraphChanged?.Invoke();
     }
 
     // ---------- Public API ----------
