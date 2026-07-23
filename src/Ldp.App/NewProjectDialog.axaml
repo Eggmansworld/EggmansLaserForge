@@ -17,9 +17,9 @@
                            Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
                 <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}" FontSize="13">
                     Your game must live inside the emulator's <Run FontFamily="Consolas,monospace">singe</Run> folder so
-                    it can find the framework and run. If you don't have Hypseus Singe yet, download the
-                    <Run FontWeight="Bold">Windows</Run> build (v2.12.1 recommended — v3.0.0 is a beta; pick 64-bit unless
-                    you're on 32-bit Windows) and extract it somewhere first:
+                    it can find the framework and run. If you don't have Hypseus Singe yet, download the latest
+                    <Run FontWeight="Bold">Windows</Run> build (64-bit unless you're on 32-bit Windows) and
+                    extract it somewhere first:
                 </TextBlock>
                 <TextBlock Name="DownloadLink" Foreground="{DynamicResource Accent}" FontSize="13"
                            Cursor="Hand" Text="https://github.com/DirtBagXon/hypseus-singe/releases"
