@@ -273,8 +273,8 @@ public sealed class SingeGen
         sb.AppendLine($"PROGRAM NAME:\t\t{_project.Name}");
         sb.AppendLine($"VERSION:\t\t\t{_project.GameVersion}");
         sb.AppendLine($"DATE:\t\t\t\t{dateText}");
-        sb.AppendLine($"ENGINE:\t\t\t\tHypseus Singe, {FrameworkDir(_project.Framework)} framework");
-        sb.AppendLine("\t\t\t\t\tLUA script written by Eggman's Laserdisc Publisher");
+        sb.AppendLine($"ENGINE:\t\t\t\tbuilt and tested on the Hypseus Singe v3.x SDL3 engine ({FrameworkDir(_project.Framework)} framework)");
+        sb.AppendLine("\t\t\t\t\tLUA script written by Eggman's LaserForge");
         sb.AppendLine($"AUTHOR:\t\t\t\t{(string.IsNullOrWhiteSpace(_project.Author) ? "(unknown - set in Game Setup)" : _project.Author)}");
         if (!string.IsNullOrWhiteSpace(_project.Synopsis))
         {

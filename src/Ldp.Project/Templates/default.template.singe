@@ -2,8 +2,8 @@
 --[[
 PROGRAM NAME:			Sonic the Hedgehog, The Movie (Animated, 1996)
 VERSION:				1.3
-ENGINE:					built and tested on the Hypseus Singe v2.12.1 Framework
-						LUA script reviewed and corrected by Eggman's Laserdisc Publisher
+ENGINE:					built and tested on the Hypseus Singe v3.x SDL3 engine
+						LUA script written by Eggman's LaserForge
 AUTHOR:					Eggman (July 2026)
 
 SYNOPSIS: Sonic, Tails, and Knuckles aim to stop a scheme that would turn their sky realm into an underworld, plunging into the planet's core and the ruined Robotropolis city to confront Dr. Robotnik, unsure if he's ally or foe.
