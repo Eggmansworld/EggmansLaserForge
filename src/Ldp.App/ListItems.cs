@@ -87,11 +87,33 @@ public sealed class InteractionItem : System.ComponentModel.INotifyPropertyChang
 }
 
 /// <summary>Clip bin row.</summary>
-public sealed class ClipItem
+public sealed class ClipItem : System.ComponentModel.INotifyPropertyChanged
 {
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
     public required Clip Clip { get; init; }
     public Bitmap? Thumbnail { get; set; }
     public string Name => Clip.Name;
     public string Range =>
         $"{Clip.StartFrame.ToString().PadLeft(6, '0')} – {Clip.EndFrame.ToString().PadLeft(6, '0')}  ({Clip.FrameCount} fr)";
+
+    /// <summary>
+    /// "L1·S3" once a level plays this scene; empty while it is unassigned and
+    /// therefore absent from the exported game. Set in bulk by the window
+    /// whenever level structure changes.
+    /// </summary>
+    private string _levelBadge = "";
+    public string LevelBadge
+    {
+        get => _levelBadge;
+        set
+        {
+            if (_levelBadge == value) return;
+            _levelBadge = value;
+            PropertyChanged?.Invoke(this, new(nameof(LevelBadge)));
+            PropertyChanged?.Invoke(this, new(nameof(HasLevel)));
+        }
+    }
+
+    public bool HasLevel => _levelBadge.Length > 0;
 }

@@ -14,6 +14,11 @@ public enum InputKind
     /// Any input skips ahead - used over long non-interactive passages
     /// (dialogue etc.). Its window is custom-length, not difficulty-derived:
     /// move[n] = {start, customEnd, SKIP, 0}.
+    ///
+    /// Implemented by BOTH global frameworks (SKIP = 100 in each globals.singe;
+    /// Framework handles it at main.singe:3430 via checkSkip and draws the
+    /// skip.png sprite), so it is also the way to give an otherwise
+    /// non-interactive scene the one move a level scene must have.
     /// </summary>
     Skip,
 

@@ -12,12 +12,15 @@
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center"
                            Foreground="{DynamicResource FgFaint}" FontSize="12"
-                           Text="drag empty space to pan · wheel to zoom · Ctrl+click selects several · drag a port to wire · Del removes selection"/>
+                           Text="drag to pan · wheel to zoom · Ctrl+click selects several · drag a port to wire · right-click assigns levels · Del removes selection"/>
             </DockPanel>
         </Border>
 
         <Border Name="Viewport" Background="{DynamicResource BgCanvas}" ClipToBounds="True">
             <Canvas Name="World">
+                <!-- Level bands sit behind everything: they are drawn from where
+                     the nodes actually are, so grouping survives hand-dragging. -->
+                <Canvas Name="BandLayer"/>
                 <Canvas Name="EdgeLayer"/>
                 <Canvas Name="NodeLayer"/>
             </Canvas>

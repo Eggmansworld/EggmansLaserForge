@@ -340,8 +340,28 @@ public static class ProjectTest
         // so its dofile is anchored on MYDIR, not BASEDIR.
         Check("real: Structure dofile uses MYDIR",
               structFill.Script.Contains("dofile(MYDIR .. \"/Structure/globals.singe\")"));
-        Check("real: commented Kimmy dofile untouched",
-              structFill.Script.Contains("-- dofile(BASEDIR .. \"/FrameworkKimmy/globals.singe\")"));
+        // The shipped template is deliberately comment-free, but the engine's
+        // reason for existing is filling a COMMUNITY-authored script without
+        // disturbing a line of it. Prove that against a commented template
+        // rather than against our own.
+        const string commentedTemplate = """
+            -- ------------------------------------
+            -- Scoring Settings
+            -- ------------------------------------
+            SCOREMOVE = 150                 -- Points for a correct move  --@APP
+            -- dofile(BASEDIR .. "/FrameworkKimmy/globals.singe")
+            dofile(BASEDIR .. "/Framework/globals.singe")
+            BASEOVERLAY = OVERLAY_FULL      -- author's own choice
+            """;
+        string commentedFill = SingeTemplate.Apply(realProject, commentedTemplate).Script;
+        Check("template: an author's section headings survive verbatim",
+              commentedFill.Contains("-- Scoring Settings") &&
+              commentedFill.Contains("-- ------------------------------------"));
+        Check("template: an author's trailing comments survive verbatim",
+              commentedFill.Contains("-- Points for a correct move") &&
+              commentedFill.Contains("-- author's own choice"));
+        Check("template: a commented-out dofile is left alone",
+              commentedFill.Contains("-- dofile(BASEDIR .. \"/FrameworkKimmy/globals.singe\")"));
 
         Check("real: scoring passthrough with helper comments",
               structFill.Script.Contains("SCOREMOVE = 150") && structFill.Script.Contains("PERFECTBONUS = 2500"));
@@ -398,13 +418,11 @@ public static class ProjectTest
         Check("real: missing author is a required-field warning",
               SingeTemplate.Apply(new LdpProject { Name = "X" }, "--@APP-BEGIN readme\nx\n--@APP-END readme")
                   .Warnings.Any(w => w.Contains("AUTHOR is required")));
-        Check("real: section headings survive verbatim",
-              structFill.Script.Contains("-- Scoring Settings") &&
-              structFill.Script.Contains("-- Advanced Settings") &&
-              structFill.Script.Contains("-- Difficulty Settings") &&
-              structFill.Script.Contains("-- 1. General settings --"));
-        Check("real: moves reference comment block survives",
-              structFill.Script.Contains("--\t\tSKIP (skip long non-interactive parts of a video)"));
+        // Our own template carries none of that: the script it produces is
+        // meant to read clean, with the readme block as the only prose.
+        Check("real: the shipped template contributes no section headings",
+              !structFill.Script.Contains("-- Scoring Settings") &&
+              !structFill.Script.Contains("-- Advanced Settings"));
         Check("real: BASEOVERLAY untouched (author's OVERLAY_FULL)",
               structFill.Script.Contains("BASEOVERLAY = OVERLAY_FULL"));
         Check("real: dip_MinimalOverlay and LangOpt present",
@@ -555,11 +573,531 @@ public static class ProjectTest
         Check("scene 1 totalMoves auto = 1", countScript.Contains("totalMoves = 1"));
         Check("scene 2 totalMoves auto = 0", countScript.Contains("totalMoves = 0"));
 
+        // ---- Level structure: the authoring surface for Level[]/setupMoves ----
+        // Levels are never inferred; a scene reaches the exported game only once
+        // a level holds it, however it is wired on the storyboard.
+        var lvlProject = new LdpProject();
+        lvlProject.Videos.Add(new VideoSource { Path = "main.m2v", GlobalBase = 0, PictureCount = 10000 });
+        List<Clip> chapters = [];
+        for (int i = 0; i < 6; i++)
+        {
+            var chapter = new Clip { Name = $"Chapter {i + 1:D2}", StartFrame = 1000 + i * 100, EndFrame = 1099 + i * 100 };
+            chapters.Add(chapter);
+            lvlProject.Clips.Add(chapter);
+        }
+
+        Check("levels: a fresh project has none", lvlProject.Levels.Count == 0);
+        Check("levels: unassigned scene has no position", lvlProject.LevelPositions().Count == 0);
+
+        GameLevel one = lvlProject.AddLevel("ACT ONE");
+        lvlProject.AssignToLevel(one, chapters.Take(3).Select(c => c.Id));
+        Check("levels: assign puts 3 scenes in play order",
+              one.SceneIds.SequenceEqual(chapters.Take(3).Select(c => c.Id)));
+        Check("levels: start follows the first scene", one.StartFrame == 1000 && one.IntroEndFrame == 1001);
+        Check("levels: no intro by default", !one.HasIntro);
+        Check("levels: position of scene 2 is L1 S2",
+              lvlProject.LevelPositions()[chapters[1].Id] == (1, 2));
+
+        // A scene plays in exactly one level: assigning it elsewhere moves it.
+        GameLevel two = lvlProject.AddLevel("ACT TWO");
+        lvlProject.AssignToLevel(two, [chapters[2].Id]);
+        Check("levels: reassign removes from the old level", one.SceneIds.Count == 2);
+        Check("levels: reassign adds to the new level", two.SceneIds.SequenceEqual([chapters[2].Id]));
+        Check("levels: LevelOf finds the owner", lvlProject.LevelOf(chapters[2].Id) == two);
+        Check("levels: LevelOf is null when unassigned", lvlProject.LevelOf(chapters[5].Id) == null);
+
+        // An author-set intro passage owns both frame numbers from then on.
+        two.IntroEndFrame = two.StartFrame + 50;
+        lvlProject.AssignToLevel(two, [chapters[3].Id]);
+        Check("levels: an author intro is not overwritten",
+              two.HasIntro && two.StartFrame == 1200 && two.IntroEndFrame == 1250);
+
+        Check("levels: scene reorder moves within the level",
+              lvlProject.MoveSceneInLevel(one, chapters[1].Id, -1) &&
+              one.SceneIds.SequenceEqual([chapters[1].Id, chapters[0].Id]));
+        Check("levels: scene reorder past the edge is refused",
+              !lvlProject.MoveSceneInLevel(one, chapters[1].Id, -1));
+        Check("levels: reorder resyncs the level start", one.StartFrame == 1100);
+        Check("levels: level reorder swaps play order",
+              lvlProject.MoveLevel(two, -1) && lvlProject.Levels[0] == two);
+        Check("levels: level reorder past the edge is refused", !lvlProject.MoveLevel(two, -1));
+        Check("levels: removal unassigns without deleting the scene",
+              RemovedCleanly(lvlProject, chapters[0]));
+
+        // Build-from-storyboard walks the success chain only, so deaths — which
+        // hang off Death ports — are never swept into a level.
+        var chainProject = new LdpProject();
+        var chainScenes = new List<Clip>();
+        for (int i = 0; i < 4; i++)
+        {
+            var c = new Clip { Name = $"Scene {i + 1}", StartFrame = 500 + i * 50, EndFrame = 549 + i * 50 };
+            chainScenes.Add(c);
+            chainProject.Clips.Add(c);
+        }
+        var death = new Clip { Name = "Death 1", StartFrame = 9000, EndFrame = 9050 };
+        chainProject.Clips.Add(death);
+
+        var chainStart = new StoryNode { Kind = NodeKind.Start };
+        chainProject.Graph.Nodes.Add(chainStart);
+        StoryNode previousNode = chainStart;
+        foreach (Clip c in chainScenes)
+        {
+            var n = new StoryNode { Kind = NodeKind.Clip, ClipId = c.Id };
+            chainProject.Graph.Nodes.Add(n);
+            chainProject.Graph.Edges.Add(new StoryEdge
+            {
+                FromNode = previousNode.Id,
+                FromPort = previousNode.Kind == NodeKind.Start ? PortKind.Out : PortKind.Success,
+                ToNode = n.Id,
+            });
+            previousNode = n;
+        }
+        var deathNode = new StoryNode { Kind = NodeKind.Clip, ClipId = death.Id };
+        chainProject.Graph.Nodes.Add(deathNode);
+        chainProject.Graph.Edges.Add(new StoryEdge
+        {
+            FromNode = chainProject.Graph.Nodes[1].Id,
+            FromPort = PortKind.Death,
+            ToNode = deathNode.Id,
+        });
+
+        Check("levels: chained scenes start out stranded", chainProject.UnassignedChainScenes().Count == 4);
+        GameLevel? built = chainProject.BuildLevelFromStoryboard("LEVEL 1");
+        Check("levels: build from storyboard takes the whole chain",
+              built != null && built.SceneIds.SequenceEqual(chainScenes.Select(c => c.Id)));
+        Check("levels: build from storyboard skips death scenes",
+              built != null && !built.SceneIds.Contains(death.Id));
+        Check("levels: nothing stranded after building", chainProject.UnassignedChainScenes().Count == 0);
+        Check("levels: build on an empty graph returns null",
+              new LdpProject().BuildLevelFromStoryboard("X") == null);
+
+        // The stranded-scene warning is what makes a silent export gap visible.
+        var strandedProject = new LdpProject { Framework = GameFramework.Structure };
+        var strandedScene = new Clip { Name = "Orphan", StartFrame = 10, EndFrame = 20 };
+        strandedProject.Clips.Add(strandedScene);
+        var sStart = new StoryNode { Kind = NodeKind.Start };
+        var sNode = new StoryNode { Kind = NodeKind.Clip, ClipId = strandedScene.Id };
+        strandedProject.Graph.Nodes.AddRange([sStart, sNode]);
+        strandedProject.Graph.Edges.Add(new StoryEdge { FromNode = sStart.Id, FromPort = PortKind.Out, ToNode = sNode.Id });
+        List<string> strandedWarnings = SingeExporter.Export(strandedProject).Warnings;
+        Check("levels: no-levels export warns",
+              strandedWarnings.Any(w => w.Contains("No levels defined")));
+        Check("levels: stranded chain scene is named in a warning",
+              strandedWarnings.Any(w => w.Contains("Orphan") && w.Contains("no level")));
+
+        // Copy-paste across levels duplicates the scene rather than stealing it.
+        Clip copy = chapters[4].Duplicate();
+        Check("levels: duplicate keeps the frame range",
+              copy.StartFrame == chapters[4].StartFrame && copy.EndFrame == chapters[4].EndFrame);
+        Check("levels: duplicate gets a fresh id", copy.Id != chapters[4].Id);
+        Check("levels: duplicate is named as a copy", copy.Name == "Chapter 05 (copy)");
+
+        var dupSource = new Clip { Name = "WithMoves", StartFrame = 1, EndFrame = 100 };
+        dupSource.Interactions.Add(new InteractionMarker { Frame = 10, Input = InputKind.Up });
+        Clip dupCopy = dupSource.Duplicate();
+        dupCopy.Interactions[0].Frame = 99;
+        Check("levels: duplicate deep-copies moves",
+              dupSource.Interactions[0].Frame == 10 && dupCopy.Interactions[0].Frame == 99);
+        Check("levels: duplicated moves get fresh ids",
+              dupCopy.Interactions[0].Id != dupSource.Interactions[0].Id);
+
+        // End to end, the reported case: 36 imported chapters chained on the
+        // storyboard, the first four carrying moves and death wires, nothing
+        // assigned. Before Build-from-Storyboard the script is empty of
+        // gameplay; after it, every chapter is a numbered scene of Level 1.
+        var film = new LdpProject { Name = "Film", Framework = GameFramework.Structure };
+        film.Videos.Add(new VideoSource { Path = "main.m2v", GlobalBase = 0, PictureCount = 200000 });
+        var filmStart = new StoryNode { Kind = NodeKind.Start };
+        film.Graph.Nodes.Add(filmStart);
+        StoryNode filmPrev = filmStart;
+        var filmDeath = new Clip { Name = "Death A", StartFrame = 190000, EndFrame = 190100 };
+        film.Clips.Add(filmDeath);
+        var filmDeathNode = new StoryNode { Kind = NodeKind.Clip, ClipId = filmDeath.Id };
+        film.Graph.Nodes.Add(filmDeathNode);
+
+        for (int i = 0; i < 36; i++)
+        {
+            var chapter = new Clip { Name = $"Chapter {i + 1:D2}", StartFrame = i * 5000, EndFrame = i * 5000 + 4999 };
+            if (i < 4) chapter.Interactions.Add(new InteractionMarker
+            {
+                Frame = chapter.StartFrame + 100,
+                Input = InputKind.Up,
+                DeathClipId = filmDeath.Id,
+            });
+            film.Clips.Add(chapter);
+
+            var node = new StoryNode { Kind = NodeKind.Clip, ClipId = chapter.Id };
+            film.Graph.Nodes.Add(node);
+            film.Graph.Edges.Add(new StoryEdge
+            {
+                FromNode = filmPrev.Id,
+                FromPort = filmPrev.Kind == NodeKind.Start ? PortKind.Out : PortKind.Success,
+                ToNode = node.Id,
+            });
+            if (i < 4) film.Graph.Edges.Add(new StoryEdge
+            {
+                FromNode = node.Id,
+                FromPort = PortKind.Death,
+                ToNode = filmDeathNode.Id,
+            });
+            filmPrev = node;
+        }
+
+        string before = SingeExporter.Export(film).Script;
+        Check("36-chapter case: unassigned exports finalstage 0", before.Contains("finalstage = 0"));
+        Check("36-chapter case: unassigned emits no Level[] line", !before.Contains("Level[1] ="));
+        Check("36-chapter case: unassigned setupMoves is empty",
+              Rx.IsMatch(before, @"function setupMoves\(thisLevel, thisScene\)\s*end"));
+        Check("36-chapter case: all 36 flagged as stranded", film.UnassignedChainScenes().Count == 36);
+
+        GameLevel filmLevel = film.BuildLevelFromStoryboard("LEVEL 1")!;
+        string after = SingeExporter.Export(film).Script;
+        Check("36-chapter case: build takes all 36 chapters", filmLevel.SceneIds.Count == 36);
+        Check("36-chapter case: the death scene stays out of the level",
+              !filmLevel.SceneIds.Contains(filmDeath.Id));
+        Check("36-chapter case: finalstage becomes 1", after.Contains("finalstage = 1"));
+        Check("36-chapter case: Level[1] declares 36 scenes",
+              after.Contains("Level[1] = {\"LEVEL 1\", 0, 1, 36, 0, 0, -1}"));
+        Check("36-chapter case: setupMoves gets 36 scene branches",
+              Rx.Matches(after, @"thisScene == \d+ then").Count == 36);
+        Check("36-chapter case: the 4 authored moves are emitted",
+              Rx.Matches(after, @"move\[\d+\]\s*=\s*\{").Count == 4);
+        Check("36-chapter case: offsetMovieEnd reaches the last chapter",
+              after.Contains("offsetMovieEnd = 179999"));
+        Check("36-chapter case: nothing stranded, no warnings about levels",
+              film.UnassignedChainScenes().Count == 0 &&
+              !SingeExporter.Export(film).Warnings.Any(w => w.Contains("no level")));
+
+        Check("levels: replay labels cover the framework values",
+              ReplayCatalog.Display(-1).StartsWith("Replay until") &&
+              ReplayCatalog.Display(0).StartsWith("Skip") &&
+              ReplayCatalog.Display(4) == "Requeue at scene 4");
+
+        // ---- Level scenes the framework cannot survive ----
+        // setupLevel does `move = nil; move = {}` then calls setupMoves, so a
+        // scene with no moves leaves the table empty; main.singe:1941 then does
+        // move[currentMove-1][inputFrmEnd] and dies with "attempt to index field
+        // '?' (a nil value)". The scene can never complete either, since levels
+        // advance by finishing moves. No published working game has one:
+        // Sonic's lowest scene is 7 moves. Frame 0 is separately unusable - it
+        // is the framework's "not set" sentinel and its seek guard
+        // (`currentFrame + 2 <= sceneStart`) can never be true for it.
+        var badScenes = new LdpProject { Framework = GameFramework.Structure };
+        var atZero = new Clip { Name = "Chapter 01", StartFrame = 0, EndFrame = 5003 };
+        atZero.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, ExplicitNoDeath = true });
+        var silent = new Clip { Name = "Chapter 05", StartFrame = 18862, EndFrame = 21733 };
+        var withSkip = new Clip { Name = "Chapter 06", StartFrame = 21734, EndFrame = 26002 };
+        withSkip.Interactions.Add(new InteractionMarker
+        {
+            Frame = 21800,
+            Input = InputKind.Skip,
+            EndFrameOverride = 25900,
+        });
+        badScenes.Clips.AddRange([atZero, silent, withSkip]);
+        badScenes.AssignToLevel(badScenes.AddLevel("LEVEL 1"), [atZero.Id, silent.Id, withSkip.Id]);
+
+        List<string> sceneWarnings = SingeExporter.Export(badScenes).Warnings;
+        Check("scenes: a level scene with no moves warns by name",
+              sceneWarnings.Any(w => w.Contains("Chapter 05") && w.Contains("no moves")));
+        Check("scenes: the no-moves warning names its level and scene number",
+              sceneWarnings.Any(w => w.Contains("Level 1 scene 2") && w.Contains("no moves")));
+        Check("scenes: a scene carrying only a Skip move is accepted",
+              !sceneWarnings.Any(w => w.Contains("Chapter 06") && w.Contains("no moves")));
+        Check("scenes: a scene starting at global frame 0 warns",
+              sceneWarnings.Any(w => w.Contains("Chapter 01") && w.Contains("frame 0")));
+        Check("scenes: a scene starting past frame 0 does not warn about it",
+              !sceneWarnings.Any(w => w.Contains("Chapter 05") && w.Contains("frame 0")));
+
+        // The script still exports - these are warnings, not a refusal - and the
+        // empty scene is still emitted so the Level[] scene count stays honest.
+        string badScript = SingeExporter.Export(badScenes).Script;
+        Check("scenes: an empty scene still emits totalMoves = 0",
+              badScript.Contains("totalMoves = 0"));
+        Check("scenes: Level[1] still counts all three scenes",
+              badScript.Contains("Level[1] = {\"LEVEL 1\", 0, 1, 3, 0, 0, -1}"));
+
+        // ---- Generated Lua must parse, whatever shape the levels are in ----
+        // An empty level opens no `if thisScene` chain, so writing its closing
+        // `end` anyway closed the LEVEL branch instead and Lua died on the next
+        // `elseif`: "'end' expected (to close 'function' at line N) near
+        // 'elseif'". Levels empty out in normal use (pulling scenes back out to
+        // re-plan), so every arrangement below has to produce parsable Lua.
+        var shapes = new (string Name, int[] SceneCounts)[]
+        {
+            ("empty level in the middle", [2, 0, 2]),
+            ("empty level first", [0, 2]),
+            ("empty level last", [2, 0]),
+            ("two empty levels after a full one", [4, 0, 0]), // the reported case
+            ("every level empty", [0, 0, 0]),
+            ("single empty level", [0]),
+            ("no empty levels", [2, 3]),
+        };
+        foreach ((string shapeName, int[] counts) in shapes)
+        {
+            var shaped = new LdpProject { Framework = GameFramework.Structure };
+            shaped.Videos.Add(new VideoSource { Path = "m.m2v", GlobalBase = 0, PictureCount = 200000 });
+            int frame = 1000;
+            foreach (int count in counts)
+            {
+                GameLevel shapedLevel = shaped.AddLevel();
+                for (int s = 0; s < count; s++)
+                {
+                    var shapedScene = new Clip { Name = $"S{frame}", StartFrame = frame, EndFrame = frame + 499 };
+                    shapedScene.Interactions.Add(new InteractionMarker
+                    {
+                        Frame = frame + 50,
+                        Input = InputKind.Up,
+                        ExplicitNoDeath = true,
+                    });
+                    shaped.Clips.Add(shapedScene);
+                    shaped.AssignToLevel(shapedLevel, [shapedScene.Id]);
+                    frame += 500;
+                }
+            }
+
+            string shapedScript = SingeExporter.Export(shaped).Script;
+            (int depth, bool negative) = MovesBlockBalance(shapedScript);
+            Check($"lua: {shapeName} — setupMoves blocks balance", depth == 0);
+            Check($"lua: {shapeName} — no stray end", !negative);
+        }
+
+        // An empty level is still a runtime crash even once the Lua parses, so
+        // it has to be named rather than quietly emitted.
+        var emptyLevelProject = new LdpProject { Framework = GameFramework.Structure };
+        emptyLevelProject.AddLevel("GHOST TOWN");
+        Check("lua: an empty level warns by name",
+              SingeExporter.Export(emptyLevelProject).Warnings
+                  .Any(w => w.Contains("GHOST TOWN") && w.Contains("no scenes")));
+
+        // Editing a scene's boundary has to pull its level's start along — the
+        // point of the frame-edit flow is nudging an imported chapter off frame
+        // 0 without recreating it and losing the moves already authored in it.
+        var editProject = new LdpProject { Framework = GameFramework.Structure };
+        editProject.Videos.Add(new VideoSource { Path = "m.m2v", GlobalBase = 0, PictureCount = 10000 });
+        var edited = new Clip { Name = "Chapter 01", StartFrame = 0, EndFrame = 5003 };
+        edited.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, ExplicitNoDeath = true });
+        editProject.Clips.Add(edited);
+        GameLevel editLevel = editProject.AddLevel("LEVEL 1");
+        editProject.AssignToLevel(editLevel, [edited.Id]);
+        Check("edit: the level starts where its scene does", editLevel.StartFrame == 0);
+        Check("edit: frame 0 warns before the nudge",
+              SingeExporter.Export(editProject).Warnings.Any(w => w.Contains("frame 0")));
+
+        edited.StartFrame = 1;
+        editProject.SyncLevelStart(editLevel);
+        Check("edit: nudging the scene off 0 pulls the level start with it",
+              editLevel.StartFrame == 1 && editLevel.IntroEndFrame == 2);
+        Check("edit: the frame-0 warning clears once nudged",
+              !SingeExporter.Export(editProject).Warnings.Any(w => w.Contains("frame 0")));
+        Check("edit: the move authored inside it survives untouched",
+              edited.Interactions.Count == 1 && edited.Interactions[0].Frame == 1716);
+
+        // ---- Framework-driven script values ----
+        // The pre-game difficulty screen is FrameworkKimmy's; under Framework
+        // the player chooses from the in-game options menu, so leaving it on
+        // sends the game to a screen that is not part of its flow.
+        foreach ((GameFramework fw, string want) in new[]
+                 {
+                     (GameFramework.FrameworkKimmy, "true"),
+                     (GameFramework.StandardFramework, "false"),
+                     (GameFramework.Structure, "false"),
+                 })
+        {
+            string diffScript = SingeTemplate.Apply(
+                new LdpProject { Framework = fw }, SingeTemplate.DefaultTemplate).Script;
+            Check($"script: IngameDiffchoice = {want} for {fw}",
+                  Rx.IsMatch(diffScript, $@"IngameDiffchoice\s*=\s*{want}\b"));
+        }
+
+        // A level's death behaviour drives LvlOrder requeue arithmetic, so
+        // anything but the loop default has to be called out.
+        var replayProject = new LdpProject { Framework = GameFramework.Structure };
+        var replayScene = new Clip { Name = "S", StartFrame = 10, EndFrame = 99 };
+        replayScene.Interactions.Add(new InteractionMarker { Frame = 20, Input = InputKind.Skip, EndFrameOverride = 90 });
+        replayProject.Clips.Add(replayScene);
+        GameLevel replayLevel = replayProject.AddLevel("L");
+        replayProject.AssignToLevel(replayLevel, [replayScene.Id]);
+        Check("script: a new level defaults to replay-until-passed",
+              replayLevel.Replay == GameLevel.DefaultReplay && replayLevel.Replay == -1);
+        Check("script: the default death behaviour is silent",
+              !SingeExporter.Export(replayProject).Warnings.Any(w => w.Contains("death behaviour")));
+        replayLevel.Replay = 0;
+        Check("script: a non-default death behaviour warns",
+              SingeExporter.Export(replayProject).Warnings.Any(w => w.Contains("death behaviour")));
+        replayLevel.Replay = GameLevel.DefaultReplay;
+
+        // The template carries no commentary beyond the markers the exporter
+        // needs and the --@APP flags that mark author-supplied values.
+        string bareTemplate = SingeTemplate.DefaultTemplate;
+        List<string> strayComments = bareTemplate.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("--", StringComparison.Ordinal))
+            .Where(l => !l.Contains("@APP", StringComparison.Ordinal))
+            .ToList();
+        Check("script: the template carries no comments but its @APP markers",
+              strayComments.Count == 0);
+        Check("script: the generated readme points back at the app",
+              SingeExporter.Export(replayProject).Script.Contains("github.com/Eggmansworld/EggmansLaserForge"));
+
+        // ---- Support files copied into a new game folder ----
+        // A game folder without Cfg/game.cfg cannot boot, so the app lays down a
+        // generic set. The picks are swappable by design, which makes "never
+        // overwrite" the invariant that protects an author's substitutions.
+        string sfRoot = Path.Combine(Path.GetTempPath(), "ldp-support-test");
+        if (Directory.Exists(sfRoot)) Directory.Delete(sfRoot, recursive: true);
+        string sfSource = Path.Combine(sfRoot, "bundled");
+        string sfGame = Path.Combine(sfRoot, "game");
+        Directory.CreateDirectory(Path.Combine(sfSource, "Cfg"));
+        Directory.CreateDirectory(Path.Combine(sfSource, "Overlay", "Lores"));
+        File.WriteAllText(Path.Combine(sfSource, "Cfg", "game.cfg"), "dip_StartLevel = 1\n");
+        File.WriteAllText(Path.Combine(sfSource, "Cfg", "default.cfg"), "dip_StartLevel = 1\n");
+        File.WriteAllText(Path.Combine(sfSource, "Overlay", "Lores", "skip.png"), "stock");
+
+        List<string> sfAdded = SupportFiles.InstallFrom(sfSource, sfGame);
+        Check("support: a fresh game folder gets every file", sfAdded.Count == 3);
+        Check("support: the folder layout is preserved",
+              File.Exists(Path.Combine(sfGame, "Overlay", "Lores", "skip.png")));
+        Check("support: the summary names the areas",
+              SupportFiles.Describe(sfAdded).Contains("Cfg") && SupportFiles.Describe(sfAdded).Contains("Overlay"));
+
+        // An author swaps an overlay for their own art; re-running must not
+        // stamp the stock file back over it.
+        File.WriteAllText(Path.Combine(sfGame, "Overlay", "Lores", "skip.png"), "AUTHOR ART");
+        File.Delete(Path.Combine(sfGame, "Cfg", "default.cfg"));
+        List<string> sfSecond = SupportFiles.InstallFrom(sfSource, sfGame);
+        Check("support: only the genuinely missing file is restored",
+              sfSecond.Count == 1 && sfSecond[0].EndsWith("default.cfg", StringComparison.Ordinal));
+        Check("support: the author's replacement survives",
+              File.ReadAllText(Path.Combine(sfGame, "Overlay", "Lores", "skip.png")) == "AUTHOR ART");
+        Check("support: a fully-stocked folder is left alone",
+              SupportFiles.InstallFrom(sfSource, sfGame).Count == 0);
+        Check("support: an absent bundle is a no-op, not a crash",
+              SupportFiles.InstallFrom(Path.Combine(sfRoot, "nope"), sfGame).Count == 0);
+        Check("support: nothing added describes as empty", SupportFiles.Describe([]) == "");
+        Directory.Delete(sfRoot, recursive: true);
+
+        // ---- Singe's persisted service-menu settings ----
+        // Cfg/game.cfg outlives every change made in the app. A start level the
+        // project no longer has sends the framework into Level[n] = nil at
+        // main.singe:6600, with nothing tying the crash back to a dip switch
+        // set days earlier — so the app has to spot it at export time.
+        var cfgProject = new LdpProject();
+        var cfgScene = new Clip { Name = "S1", StartFrame = 100, EndFrame = 200 };
+        cfgProject.Clips.Add(cfgScene);
+        cfgProject.AssignToLevel(cfgProject.AddLevel("ONLY LEVEL"), [cfgScene.Id]);
+
+        const string liveCfg = "dip_GameType = 0\ndip_PlayStyle = 0\ndip_StartLevel = 3\ndip_StartScene = 1\n";
+        Check("cfg: reads a numeric setting", GameConfig.Value(liveCfg, "dip_StartLevel") == 3);
+        Check("cfg: an absent setting reads null", GameConfig.Value(liveCfg, "dip_Nonsense") == null);
+        Check("cfg: a start level past the last one warns",
+              GameConfig.Validate(liveCfg, cfgProject).Any(w => w.Contains("level 3") && w.Contains("1 level")));
+        Check("cfg: an in-range start level is silent",
+              GameConfig.Validate("dip_StartLevel = 1\ndip_StartScene = 1\n", cfgProject).Count == 0);
+        Check("cfg: an empty file leaves the dips at their defaults",
+              GameConfig.Validate("", cfgProject).Count == 0);
+        // Deleting game.cfg is the wrong remedy — the framework reads it at boot
+        // with no existence check — so the warning has to name the edit AND say
+        // not to delete it.
+        Check("cfg: the remedy names the edit and warns against deleting",
+              GameConfig.Validate(liveCfg, cfgProject)
+                  .All(w => w.Contains("edit dip_StartLevel") && w.Contains("Do not delete")));
+
+        // A missing game.cfg is a boot failure, not an unconfigured state:
+        // readConfig() does a bare io.input on it with no existence check.
+        string cfgDir = Path.Combine(Path.GetTempPath(), "ldp-cfg-test", "Cfg");
+        Directory.CreateDirectory(cfgDir);
+        string cfgHome = Path.GetDirectoryName(cfgDir)!;
+        File.Delete(GameConfig.PathFor(cfgHome));
+        File.WriteAllText(Path.Combine(cfgDir, "default.cfg"), "dip_StartLevel = 1\n");
+        Check("cfg: a missing game.cfg is reported as a boot failure",
+              GameConfig.ValidateFolder(cfgHome, cfgProject)
+                  .Any(w => w.Contains("missing") && w.Contains("Copy Cfg/default.cfg")));
+
+        File.WriteAllText(GameConfig.PathFor(cfgHome), "dip_StartLevel = 1\ndip_StartScene = 1\n");
+        Check("cfg: a present, in-range game.cfg is silent",
+              GameConfig.ValidateFolder(cfgHome, cfgProject).Count == 0);
+        Directory.Delete(Path.GetDirectoryName(cfgDir)!, recursive: true);
+        Check("cfg: a start scene past the level's last warns",
+              GameConfig.Validate("dip_StartLevel = 1\ndip_StartScene = 4\n", cfgProject)
+                  .Any(w => w.Contains("scene 4")));
+        Check("cfg: zero and negative start levels warn",
+              GameConfig.Validate("dip_StartLevel = 0\n", cfgProject).Count == 1);
+        Check("cfg: the path sits under the game folder's Cfg",
+              GameConfig.PathFor("X").Replace('\\', '/') == "X/Cfg/game.cfg");
+
+        // ---- Attract slots the framework never zero-guards ----
+        // doIntro() shows frameSpecial second, guarded only by
+        // `frameSpecial ~= frameControls` — which zero passes — then plays
+        // offsetIntro02/03 outright, and doFillerFrame() rotates those two
+        // between levels. Identical in Framework and FrameworkKimmy. A zero in
+        // any of them seeks to frame 0 and freezes the picture while the script
+        // runs on, so the app has to demand them rather than default them away.
+        Check("slots: frameSpecial is required",
+              SlotCatalog.Stills.First(s => s.LuaName == "frameSpecial").Required);
+        Check("slots: attract videos 2 and 3 are required",
+              SlotCatalog.Ranges.Where(r => r.LuaName is "offsetIntro02" or "offsetIntro03").All(r => r.Required));
+        Check("slots: game intro stays optional (framework guards it with ~= 0)",
+              !SlotCatalog.Ranges.First(r => r.LuaName == "offsetIntroGame").Required);
+        Check("slots: trophies stay optional (guarded by LvlTrophy3 ~= 0)",
+              !SlotCatalog.Stills.First(s => s.LuaName == "frameTrophy").Required);
+
+        var attract = new LdpProject { Framework = GameFramework.Structure };
+        List<string> attractWarnings = SingeExporter.Export(attract).Warnings;
+        Check("slots: unset frameSpecial warns by name",
+              attractWarnings.Any(w => w.Contains("frameSpecial")));
+        Check("slots: unset attract videos warn by name",
+              attractWarnings.Any(w => w.Contains("offsetIntro02")) &&
+              attractWarnings.Any(w => w.Contains("offsetIntro03")));
+
+        // Pointing it at the instructions frame is the framework's own way of
+        // skipping the step, so that has to count as satisfying the slot.
+        attract.Slots.Stills[StillSlot.Controls] = 5000;
+        attract.Slots.Stills[StillSlot.SpecialMoves] = 5000;
+        Check("slots: frameSpecial reusing frameControls satisfies it",
+              !SingeExporter.Export(attract).Warnings.Any(w => w.Contains("frameSpecial")));
+
         // ---- Video conversion (FFmpeg command builder) ----
         FfmpegCommandTest.Run(Check);
 
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
         return failures == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// Block balance of generated Lua from `function setupMoves` onwards: every
+    /// `function` and `if ... then` must be closed by exactly one `end`, and the
+    /// running depth must never dip below zero. Depth is what catches a stray
+    /// `end` at its source — Lua itself only notices lines later, reporting
+    /// "'end' expected (to close 'function') near 'elseif'".
+    /// </summary>
+    private static (int Depth, bool WentNegative) MovesBlockBalance(string script)
+    {
+        int start = script.IndexOf("function setupMoves", StringComparison.Ordinal);
+        if (start < 0) return (int.MinValue, false);
+
+        int depth = 0;
+        bool negative = false;
+        foreach (string raw in script[start..].Split('\n'))
+        {
+            string line = raw.Trim();
+            if (line.StartsWith("--", StringComparison.Ordinal)) continue;
+            // `elseif` is one word, so \bif\b never matches inside it.
+            if (Rx.IsMatch(line, @"^function\b") || Rx.IsMatch(line, @"^if\b.*\bthen\b")) depth++;
+            if (Rx.IsMatch(line, @"^end\b"))
+            {
+                depth--;
+                if (depth < 0) negative = true;
+            }
+        }
+        return (depth, negative);
+    }
+
+    /// <summary>Removing a scene from its level must leave the scene itself in
+    /// the project — the level list is structure, not ownership.</summary>
+    private static bool RemovedCleanly(LdpProject project, Clip scene)
+    {
+        project.RemoveFromLevels([scene.Id]);
+        return project.LevelOf(scene.Id) == null && project.Clips.Contains(scene);
     }
 
     private static string NormalizeGeneratedDates(string s) =>

@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -94,7 +95,13 @@ public partial class MainWindow : Window
         ClipList.AddHandler(PointerMovedEvent, OnClipListPointerMoved, RoutingStrategies.Tunnel);
         ClipList.AddHandler(PointerReleasedEvent, (_, _) => OnClipListPointerReleased(), RoutingStrategies.Tunnel);
 
+        // Scenes are assigned to levels from this list (it already multi-selects).
+        ClipList.ContextMenu = new ContextMenu();
+        ClipList.ContextMenu.Opening += OnClipMenuOpening;
+        ClipList.AddHandler(ContextRequestedEvent, OnClipContextRequested, RoutingStrategies.Tunnel);
+
         GameSetup.SlotsChanged += () => { MarkDirty(); SaveProject(); };
+        GameSetup.LevelsChanged += OnLevelsChanged;
         GameSetup.GotoFrameRequested += async frame =>
         {
             ShowEditorPane();
@@ -102,6 +109,7 @@ public partial class MainWindow : Window
         };
 
         Storyboard.GraphChanged += () => { MarkDirty(); SaveProject(); };
+        Storyboard.LevelAssignmentChanged += OnLevelsChanged;
         Storyboard.NodeActivated += async clip =>
         {
             ShowEditorPane();
@@ -158,6 +166,21 @@ public partial class MainWindow : Window
     }
 
     private void ScrollLogToEnd() => Dispatcher.UIThread.Post(() => LogScroll.ScrollToEnd());
+
+    /// <summary>
+    /// Copies the whole status history. Individual lines are selectable, but
+    /// pasting a run of them elsewhere (a bug report, a Hypseus log comparison)
+    /// wants the lot in one go.
+    /// </summary>
+    private async void OnCopyLog(object? sender, RoutedEventArgs e)
+    {
+        if (Clipboard is not { } clipboard) return;
+        int lines = _logItems.Count;
+        await clipboard.SetValueAsync(DataFormat.Text, string.Join(Environment.NewLine, _logItems));
+        StatusText.Text = lines == 0
+            ? "Nothing in the log to copy yet."
+            : $"{lines} log line(s) copied to the clipboard.";
+    }
 
     private ClipItem? LookupClip(Guid id) => _clipItems.FirstOrDefault(c => c.Clip.Id == id);
 
@@ -259,7 +282,34 @@ public partial class MainWindow : Window
         // separate manual download.
         List<string> installed = InstallGlobalFrameworks(result.HypseusRoot);
         string fwNote = installed.Count > 0 ? $" · installed {string.Join(" + ", installed)}" : "";
-        StatusText.Text = $"Project created in singe\\{result.GameFolder}{fwNote} — add your first video with '＋ Add Video…'";
+
+        // …and the game's own support files. Without Cfg/game.cfg the framework
+        // quits before the first frame, so a game created here has to arrive
+        // with a working folder rather than a folder the author must assemble.
+        string filesNote = InstallGameSupportFiles();
+        StatusText.Text = $"Project created in singe\\{result.GameFolder}{fwNote}" +
+                          (filesNote.Length > 0 ? $" · {filesNote}" : "") +
+                          " — add your first video with '＋ Add Video…'";
+    }
+
+    /// <summary>
+    /// Drops the bundled Cfg/Fonts/Overlay/Script/Sounds into the game folder,
+    /// filling only what is absent. Returns a short note, or "" when there was
+    /// nothing to do.
+    /// </summary>
+    private string InstallGameSupportFiles()
+    {
+        if (_projectPath == null) return "";
+        try
+        {
+            return GameFilesInstaller.Describe(
+                GameFilesInstaller.EnsureInstalled(Path.GetDirectoryName(_projectPath)!));
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = "Could not add the game's support files: " + ex.Message;
+            return "";
+        }
     }
 
     private async void OnOpenProject(object? sender, RoutedEventArgs e)
@@ -493,6 +543,7 @@ public partial class MainWindow : Window
 
         foreach (Clip clip in _project.Clips)
             _clipItems.Add(MakeClipItem(clip));
+        RefreshSceneRows(); // paint the L·S badges
 
         Storyboard.SetProject(_project, LookupClip);
         GameSetup.SetProject(_project,
@@ -591,6 +642,13 @@ public partial class MainWindow : Window
         SingeTemplate.Result filled = SingeTemplate.Apply(_project, templateText);
         await File.WriteAllTextAsync(paths.ScriptPath, filled.Script);
         await File.WriteAllTextAsync(paths.FramePath, SingeExporter.BuildFrameFile(_project));
+
+        // Singe's own service-menu settings survive every change made here, so a
+        // start level that has since been deleted crashes the game with nothing
+        // pointing back at a dip switch. Checked after writing so the warning
+        // reflects the script that just landed on disk.
+        filled.Warnings.AddRange(
+            GameConfig.ValidateFolder(Path.GetDirectoryName(paths.ScriptPath)!, _project));
         return filled.Warnings;
     }
 
@@ -640,6 +698,11 @@ public partial class MainWindow : Window
                 InstallGlobalFrameworks(_project.HypseusRoot);
             if (FrameworkGlobalsMissing() is { } missing)
                 warnings.Insert(0, missing);
+
+            // Projects predating the bundled support files, or folders an author
+            // has pruned, get the gaps filled here rather than failing at boot.
+            if (InstallGameSupportFiles() is { Length: > 0 } added)
+                warnings.Insert(0, added + " — the game folder was missing support files the framework needs.");
 
             var dialog = new TestHypseusDialog(_project.HypseusRoot, _project.EffectiveGameFolder, warnings);
             await dialog.ShowDialog(this);
@@ -1121,15 +1184,29 @@ public partial class MainWindow : Window
         foreach ((string, string) pair in langTracks) yield return pair;
     }
 
-    private async void OnRenameClip(object? sender, RoutedEventArgs e)
+    /// <summary>
+    /// Edits the selected scene's name and frame range. Frames are editable
+    /// because recreating a scene to fix a boundary would discard every move
+    /// authored inside it — imported chapters in particular land on whatever
+    /// boundary the source video had, which is not always usable.
+    /// </summary>
+    private async void OnEditScene(object? sender, RoutedEventArgs e)
     {
         if (_project == null || SelectedClip is not { } clip) return;
-        var dialog = new RenameDialog("Rename Scene", "New scene name:", clip.Name);
+        var dialog = new EditSceneDialog(_project, clip);
         await dialog.ShowDialog(this);
-        string? name = dialog.Result?.Trim();
-        if (string.IsNullOrEmpty(name) || name == clip.Name) return;
+        if (dialog.Result is not { } edit) return;
+        if (edit.Name == clip.Name && edit.Start == clip.StartFrame && edit.End == clip.EndFrame) return;
 
-        clip.Name = name;
+        bool framesMoved = edit.Start != clip.StartFrame || edit.End != clip.EndFrame;
+        clip.Name = edit.Name;
+        clip.StartFrame = edit.Start;
+        clip.EndFrame = edit.End;
+
+        // A level's start tracks its first scene, so moving that scene's edge
+        // has to pull the level along with it.
+        if (_project.LevelOf(clip.Id) is { } level) _project.SyncLevelStart(level);
+
         MarkDirty();
         SaveProject();
 
@@ -1139,9 +1216,17 @@ public partial class MainWindow : Window
             _clipItems[i] = MakeClipItem(clip);
             ClipList.SelectedIndex = i;
         }
+        RefreshSceneRows();
         Storyboard.Refresh();
+        GameSetup.Refresh();
         RefreshInteractions();
-        StatusText.Text = $"Scene renamed to '{clip.Name}' (Ctrl+Z to undo).";
+        RepaintMarkerStrip();
+
+        int stranded = clip.Interactions.Count(m => m.Frame < clip.StartFrame || m.Frame > clip.EndFrame);
+        StatusText.Text = framesMoved
+            ? $"'{clip.Name}' is now {clip.StartFrame:D6}–{clip.EndFrame:D6} ({clip.FrameCount} frames)" +
+              (stranded > 0 ? $" — ⚠ {stranded} move(s) now fall outside it" : "") + " (Ctrl+Z to undo)."
+            : $"Scene renamed to '{clip.Name}' (Ctrl+Z to undo).";
     }
 
     /// <summary>Overwrites the selected scene's thumbnail with the frame currently
@@ -2159,6 +2244,126 @@ public partial class MainWindow : Window
         return _project.Clips.Where(chosen.Contains).ToList();
     }
 
+    // ---------- Level assignment ----------
+
+    /// <summary>
+    /// Right-clicking outside the current selection retargets it to the row
+    /// under the pointer; otherwise the menu would silently act on scenes the
+    /// author can no longer see highlighted.
+    /// </summary>
+    private void OnClipContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        if ((e.Source as Control)?.FindAncestorOfType<ListBoxItem>(includeSelf: true)?.DataContext
+            is not ClipItem item) return;
+        if (ClipList.SelectedItems?.Contains(item) != true) ClipList.SelectedItem = item;
+    }
+
+    /// <summary>
+    /// Rebuilt on every open: what the menu offers is the level list, and that
+    /// changes as the author works.
+    /// </summary>
+    private void OnClipMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (ClipList.ContextMenu is not { } menu) return;
+        menu.Items.Clear();
+
+        List<Clip> scenes = SelectedScenesInOrder();
+        if (_project == null || scenes.Count == 0) { e.Cancel = true; return; }
+        string what = scenes.Count == 1 ? $"'{scenes[0].Name}'" : $"{scenes.Count} scenes";
+
+        if (scenes.Count == 1)
+        {
+            menu.Items.Add(MenuAction($"✎ Edit {what} — name and frame range", () => OnEditScene(null, null!)));
+            menu.Items.Add(new Separator());
+        }
+
+        var assign = new MenuItem { Header = $"Assign {what} to level" };
+        for (int i = 0; i < _project.Levels.Count; i++)
+        {
+            GameLevel level = _project.Levels[i];
+            assign.Items.Add(MenuAction($"L{i + 1}   {level.Title}   ({level.SceneIds.Count} scenes)",
+                () => AssignScenes(level, scenes)));
+        }
+        if (_project.Levels.Count > 0) assign.Items.Add(new Separator());
+        assign.Items.Add(MenuAction("＋ New level", () => AssignScenes(_project.AddLevel(), scenes)));
+        menu.Items.Add(assign);
+
+        menu.Items.Add(MenuAction("Remove from level", () =>
+        {
+            _project.RemoveFromLevels(scenes.Select(c => c.Id));
+            OnLevelsChanged();
+            StatusText.Text = $"{scenes.Count} scene(s) removed from their level — they won't be exported.";
+        }, enabled: scenes.Any(c => _project.LevelOf(c.Id) != null)));
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuAction($"✂ Cut {what} — paste moves them into a level", () =>
+        {
+            SceneClipboard.Set(scenes.Select(c => c.Id), cut: true);
+            GameSetup.Refresh();
+            StatusText.Text = $"{scenes.Count} scene(s) cut — paste into a level on the Game Setup page.";
+        }));
+        menu.Items.Add(MenuAction($"⧉ Copy {what} — paste duplicates them over the same frames", () =>
+        {
+            SceneClipboard.Set(scenes.Select(c => c.Id), cut: false);
+            GameSetup.Refresh();
+            StatusText.Text = $"{scenes.Count} scene(s) copied — pasting into a level duplicates them.";
+        }));
+
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuAction("🎮 Open the levels panel", ShowGamePane));
+    }
+
+    private static MenuItem MenuAction(string header, Action action, bool enabled = true)
+    {
+        var item = new MenuItem { Header = header, IsEnabled = enabled };
+        item.Click += (_, _) => action();
+        return item;
+    }
+
+    private void AssignScenes(GameLevel level, IReadOnlyList<Clip> scenes)
+    {
+        if (_project == null) return;
+        _project.AssignToLevel(level, scenes.Select(c => c.Id));
+        OnLevelsChanged();
+        StatusText.Text = $"{scenes.Count} scene(s) assigned to L{_project.Levels.IndexOf(level) + 1} " +
+                          $"'{level.Title}' — it now plays {level.SceneIds.Count} scene(s).";
+    }
+
+    /// <summary>
+    /// Level structure changed: persist it, then repaint everything that shows a
+    /// level number — the setup panel, the scene badges, the storyboard chips.
+    /// </summary>
+    private void OnLevelsChanged()
+    {
+        MarkDirty();
+        SaveProject();
+        RefreshSceneRows();
+        GameSetup.Refresh();
+        Storyboard.Refresh();
+    }
+
+    /// <summary>
+    /// Reconciles the SCENES list with the project's clips — pasting a copied
+    /// scene into a level creates new ones — and repaints every L·S badge.
+    /// </summary>
+    private void RefreshSceneRows()
+    {
+        if (_project == null) return;
+
+        foreach (Clip clip in _project.Clips)
+            if (_clipItems.All(i => i.Clip.Id != clip.Id))
+                _clipItems.Add(MakeClipItem(clip));
+        for (int i = _clipItems.Count - 1; i >= 0; i--)
+            if (!_project.Clips.Contains(_clipItems[i].Clip))
+                _clipItems.RemoveAt(i);
+
+        Dictionary<Guid, (int Level, int Scene)> positions = _project.LevelPositions();
+        foreach (ClipItem item in _clipItems)
+            item.LevelBadge = positions.TryGetValue(item.Clip.Id, out (int Level, int Scene) at)
+                ? $"L{at.Level}·S{at.Scene}"
+                : "";
+    }
+
     // ---------- Drag scenes from bin to storyboard ----------
 
     private Point? _binDragOrigin;
@@ -2235,8 +2440,10 @@ public partial class MainWindow : Window
     {
         if (_project == null || _projectPath == null || ClipList.SelectedItem is not ClipItem item) return;
         _project.Clips.Remove(item.Clip);
+        _project.RemoveFromLevels([item.Clip.Id]); // a level must never cite a deleted scene
         _clipItems.Remove(item);
         Storyboard.RemoveNodesForClip(item.Clip.Id);
+        RefreshSceneRows(); // following scenes shift down a number in their level
         try { File.Delete(Path.Combine(ProjectFile.CacheDir(_projectPath), item.Clip.Id + ".png")); }
         catch (IOException) { }
         MarkDirty();

@@ -28,6 +28,27 @@ if (args.Length >= 4 && args[0] == "--fill")
     return 0;
 }
 
+if (args.Length >= 2 && args[0] == "--export-check")
+{
+    // Read-only readiness audit of a game in progress: loads a project and
+    // reports exactly what the exporter would warn about, without writing a
+    // script, a frame file, or touching the project itself.
+    Ldp.Project.LdpProject checkProject = Ldp.Project.ProjectFile.Load(args[1]);
+    int assigned = checkProject.Levels.Sum(l => l.SceneIds.Count);
+    Console.WriteLine($"{checkProject.Name}: {checkProject.Videos.Count} videos, {checkProject.Clips.Count} scenes, " +
+                      $"{checkProject.Levels.Count} levels ({assigned} scenes assigned)");
+    Ldp.Project.SingeTemplate.Result audit = Ldp.Project.SingeTemplate.Apply(
+        checkProject, Ldp.Project.SingeTemplate.DefaultTemplate);
+    // Singe's persisted dip switches live beside the project and outlive it.
+    audit.Warnings.AddRange(Ldp.Project.GameConfig.ValidateFolder(
+        Path.GetDirectoryName(Path.GetFullPath(args[1]))!, checkProject));
+    foreach (string w in audit.Warnings) Console.WriteLine($"  warn: {w}");
+    Console.WriteLine(audit.Warnings.Count == 0
+        ? "no warnings - ready to export"
+        : $"{audit.Warnings.Count} warning(s)");
+    return 0;
+}
+
 if (args.Length >= 2 && args[0] == "--resolve-check")
 {
     Ldp.Project.LdpProject proj = Ldp.Project.ProjectFile.Load(args[1]);

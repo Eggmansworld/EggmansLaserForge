@@ -79,8 +79,12 @@ public static class SlotCatalog
     [
         new(RangeSlot.Title, "offsetTitle", "Title video", "Shown once at first boot (logo/intro)", true),
         new(RangeSlot.Intro01, "offsetIntro01", "Attract video 1", "Arcade-style attract loop entry", true),
-        new(RangeSlot.Intro02, "offsetIntro02", "Attract video 2", "Second attract video", false),
-        new(RangeSlot.Intro03, "offsetIntro03", "Attract video 3", "Third attract video", false),
+        // The attract loop plays all three unconditionally (doIntro branch03/branch05)
+        // and doFillerFrame() rotates 2 and 3 between levels. There is no zero-guard
+        // on any of them, so an empty slot means setupClip(0, 0) and a frozen picture.
+        // Re-use a short passage if a game only really has one attract video.
+        new(RangeSlot.Intro02, "offsetIntro02", "Attract video 2", "Played in the attract loop and as between-level filler. Never leave empty - re-use another passage if you only have one attract video.", true),
+        new(RangeSlot.Intro03, "offsetIntro03", "Attract video 3", "Played in the attract loop and as between-level filler. Never leave empty - re-use another passage if you only have one attract video.", true),
         new(RangeSlot.IntroGame, "offsetIntroGame", "Game intro", "Played only when a game starts (optional)", false),
         new(RangeSlot.Continue, "offsetContinue", "Continue", "~15s countdown video for the continue decision", true),
         new(RangeSlot.LevelClear, "offsetClear", "Level cleared", "After each level (can be a single frame)", true),
@@ -102,7 +106,12 @@ public static class SlotCatalog
         new(StillSlot.OptionsMenu, "frameOptions", "Options menu", "Background for the service/options menu", true),
         new(StillSlot.RankingsMenu, "frameRankings", "Top scores", "Background for the top-10 scores", true),
         new(StillSlot.Victory, "frameVictory", "Victory", "Shown when the game is completed", true),
-        new(StillSlot.SpecialMoves, "frameSpecial", "Special moves", "Can reuse the instructions frame", false),
+        // Shown second in the attract sequence, straight after Instructions. Its
+        // only guard is `if frameSpecial ~= frameControls`, so zero passes the
+        // test and the framework skips to frame 0 - the picture freezes while the
+        // script carries on. Setting it EQUAL to frameControls is the framework's
+        // own way of skipping the step.
+        new(StillSlot.SpecialMoves, "frameSpecial", "Special moves", "Second instructions page, shown right after Instructions in the attract loop. Never leave it at zero - set it to the same frame as Instructions to skip the step entirely.", true),
         new(StillSlot.Secret, "frameSecret", "Secret level", "Shown when finishing on one life (optional)", false),
         new(StillSlot.Trophy, "frameTrophy", "Trophies", "Optional trophies frame", false),
         new(StillSlot.Hints, "frameHints", "Hints", "Optional hints frame", false),

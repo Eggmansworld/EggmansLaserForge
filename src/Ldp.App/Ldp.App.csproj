@@ -11,7 +11,7 @@
     <AssemblyName>LaserForge</AssemblyName>
     <Product>Eggman's LaserForge</Product>
     <AssemblyTitle>Eggman's LaserForge</AssemblyTitle>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <Company>Eggmansworld</Company>
   </PropertyGroup>
 
@@ -42,6 +42,18 @@
   <ItemGroup>
     <None Include="..\..\assets\Frameworks\**\*">
       <Link>Frameworks\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Support files every Singe game needs (Cfg, Fonts, Overlay, Script,
+       Sounds). The framework reads Cfg/game.cfg at boot without checking it
+       exists, so a game folder lacking these cannot start at all. Authors
+       normally gather them by copying another game; the app ships a generic
+       set and drops in only what a game folder is missing. -->
+  <ItemGroup>
+    <None Include="..\..\assets\DefaultGameFiles\**\*">
+      <Link>DefaultGameFiles\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

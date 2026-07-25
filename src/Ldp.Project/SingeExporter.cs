@@ -224,6 +224,13 @@ public sealed class SingeGen
             .Max();
         _values["offsetMovieEnd"] = movieEnd.ToString();
         _values["finalstage"] = _project.Levels.Count.ToString();
+
+        // The pre-game difficulty screen (built from the four difficulty-select
+        // frames) belongs to FrameworkKimmy. Under Framework the player picks
+        // difficulty from the in-game options menu instead, so leaving this on
+        // sends the game to a screen that isn't part of its flow.
+        _values["IngameDiffchoice"] =
+            _project.Framework == GameFramework.FrameworkKimmy ? "true" : "false";
         _values["totalDeath"] = _deathOrder.Count.ToString();
         _values["PlayOrder"] = "{" + string.Join(",", Enumerable.Range(1, Math.Max(1, _project.Levels.Count))) + "}";
 
@@ -273,8 +280,12 @@ public sealed class SingeGen
         sb.AppendLine($"PROGRAM NAME:\t\t{_project.Name}");
         sb.AppendLine($"VERSION:\t\t\t{_project.GameVersion}");
         sb.AppendLine($"DATE:\t\t\t\t{dateText}");
-        sb.AppendLine($"ENGINE:\t\t\t\tbuilt and tested on the Hypseus Singe v3.x SDL3 engine ({FrameworkDir(_project.Framework)} framework)");
+        sb.AppendLine("ENGINE:\t\t\t\tbuilt and tested on the Hypseus Singe v3.x SDL3 engine");
+        sb.AppendLine($"FRAMEWORK:\t\t\t{FrameworkDir(_project.Framework)}");
+        // The script carries no explanatory comments of its own; this is where
+        // a reader is pointed for what any of it means.
         sb.AppendLine("\t\t\t\t\tLUA script written by Eggman's LaserForge");
+        sb.AppendLine("\t\t\t\t\thttps://github.com/Eggmansworld/EggmansLaserForge");
         sb.AppendLine($"AUTHOR:\t\t\t\t{(string.IsNullOrWhiteSpace(_project.Author) ? "(unknown - set in Game Setup)" : _project.Author)}");
         if (!string.IsNullOrWhiteSpace(_project.Synopsis))
         {
@@ -361,6 +372,12 @@ public sealed class SingeGen
         {
             GameLevel level = _project.Levels[levelIdx];
             sb.AppendLine($"\t{(levelIdx == 0 ? "if" : "elseif")} thisLevel == {levelIdx + 1} then\t\t-- {level.Title}");
+
+            // The `end` below closes the scene if-chain, so it may only be
+            // written when a scene actually opened one. A level with no usable
+            // scenes would otherwise emit a stray `end` that closes the LEVEL
+            // branch instead, and Lua then fails on the next `elseif`.
+            bool openedSceneChain = false;
             for (int sceneIdx = 0; sceneIdx < level.SceneIds.Count; sceneIdx++)
             {
                 Clip? scene = SceneById(level.SceneIds[sceneIdx]);
@@ -369,11 +386,33 @@ public sealed class SingeGen
                     _warnings.Add($"Level {levelIdx + 1} scene {sceneIdx + 1} is missing from the project");
                     continue;
                 }
+                openedSceneChain = true;
                 sb.AppendLine($"\t\t{(sceneIdx == 0 ? "if" : "elseif")} thisScene == {sceneIdx + 1} then");
                 sb.AppendLine($"\t\t\tsceneStart = {scene.StartFrame}");
                 sb.AppendLine($"\t\t\tsceneEnd = {scene.EndFrame}");
 
+                // Frame 0 is the framework's "not set" sentinel everywhere
+                // (offsetIntroGame ~= 0, LvlTrophy3 ~= 0, ...), and its
+                // seek-to-scene guard - `currentFrame + 2 <= sceneStart` - can
+                // never be true for it. Hand-authored games start at frame 1.
+                if (scene.StartFrame == 0)
+                    _warnings.Add($"Level {levelIdx + 1} scene {sceneIdx + 1} '{scene.Name}' starts at global frame 0. " +
+                                  "The framework reads 0 as \"not set\" and may not seek to it - start the scene at frame 1 or later.");
+
                 List<InteractionMarker> moves = scene.Interactions.OrderBy(m => m.Frame).ToList();
+
+                // A gameplay scene with no moves is fatal, not merely empty:
+                // setupLevel clears the move table (`move = nil; move = {}`)
+                // before calling setupMoves, so nothing fills it back in, and
+                // the framework then indexes move[] unguarded and dies with
+                // "attempt to index field '?' (a nil value)". The scene also has
+                // no way to complete, since levels advance by finishing moves.
+                // A non-interactive passage still needs one move - normally SKIP.
+                if (moves.Count == 0)
+                    _warnings.Add($"Level {levelIdx + 1} scene {sceneIdx + 1} '{scene.Name}' has no moves. " +
+                                  "The framework crashes on a scene with an empty move table and the scene can " +
+                                  "never complete - add at least one move (a Skip move covers a passage with no action).");
+
                 sb.AppendLine($"\t\t\ttotalMoves = {moves.Count}");
                 sb.AppendLine();
                 for (int n = 0; n < moves.Count; n++)
@@ -391,10 +430,30 @@ public sealed class SingeGen
                 }
                 sb.AppendLine();
             }
-            sb.AppendLine("\t\tend");
+            // Anything but -1 feeds LvlOrder's requeue arithmetic and reorders
+            // the game behind the author's back, so it is never silent.
+            if (level.Replay != GameLevel.DefaultReplay)
+                _warnings.Add($"Level {levelIdx + 1} '{level.Title}' has a non-default death behaviour " +
+                              $"({ReplayCatalog.Display(level.Replay)}). Games normally ship with " +
+                              "\"replay until passed\" - anything else rewrites the level play order.");
+
+            if (openedSceneChain) sb.AppendLine("\t\tend");
+            else
+                _warnings.Add($"Level {levelIdx + 1} '{level.Title}' has no scenes. The framework asks it for " +
+                              "scene 1, finds nothing, and crashes - give the level scenes or delete it.");
         }
         if (_project.Levels.Count > 0) sb.AppendLine("\tend");
-        else _warnings.Add("No levels defined - the game has no playable content");
+        else
+            _warnings.Add("No levels defined - the game has no playable content. " +
+                          "Assign scenes to a level in Game Setup (or right-click them in the scenes list).");
+
+        // Scenes wired on the storyboard but in no level are the quiet failure
+        // this warning exists to make loud: they simply never reach the script.
+        List<Clip> stranded = _project.UnassignedChainScenes();
+        if (stranded.Count > 0)
+            _warnings.Add($"{stranded.Count} scene(s) on the storyboard's main line belong to no level and " +
+                          $"were not exported: {string.Join(", ", stranded.Take(5).Select(c => c.Name))}" +
+                          (stranded.Count > 5 ? ", ..." : ""));
         sb.Append("end");
         return sb.ToString();
     }

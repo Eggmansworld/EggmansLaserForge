@@ -1,0 +1,41 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.EditSceneDialog"
+        Title="Edit Scene"
+        Width="600" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{DynamicResource BgWindow}">
+    <StackPanel Margin="20" Spacing="10">
+
+        <TextBlock Text="Scene name" FontSize="12" Foreground="{DynamicResource FgFaint}"/>
+        <TextBox Name="NameBox" FontSize="14" KeyDown="OnKeyDown"/>
+
+        <Grid ColumnDefinitions="*,16,*" Margin="0,4,0,0">
+            <StackPanel Grid.Column="0" Spacing="4">
+                <TextBlock Text="Start frame (global)" FontSize="12" Foreground="{DynamicResource FgFaint}"/>
+                <TextBox Name="StartBox" FontSize="14" FontFamily="Consolas,monospace" KeyDown="OnKeyDown"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Spacing="4">
+                <TextBlock Text="End frame (global, inclusive)" FontSize="12" Foreground="{DynamicResource FgFaint}"/>
+                <TextBox Name="EndBox" FontSize="14" FontFamily="Consolas,monospace" KeyDown="OnKeyDown"/>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Text="Moves keep their own frame numbers — they are absolute, so nudging a scene boundary never moves them. Any that fall outside the new range are flagged below."
+                   TextWrapping="Wrap" FontSize="11" Foreground="{DynamicResource FgFaint}"/>
+
+        <Border Background="{DynamicResource BgPanel}" CornerRadius="4" Padding="10,8">
+            <TextBlock Name="InfoText" TextWrapping="Wrap" FontSize="12"
+                       FontFamily="Consolas,monospace" Foreground="{DynamicResource FgMuted}" Text=""/>
+        </Border>
+
+        <TextBlock Name="ErrorText" TextWrapping="Wrap" FontSize="12"
+                   Foreground="{DynamicResource PortDeath}" IsVisible="False"/>
+
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+            <Button Content="Cancel" Click="OnCancel"/>
+            <Button Name="OkButton" Content="Save Scene" Click="OnOk"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

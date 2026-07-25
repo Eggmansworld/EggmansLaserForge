@@ -96,7 +96,7 @@ public sealed class LdpProject
 
     /// <summary>
     /// Selectable audio language tracks (LangOpt). Each maps a display name to
-    /// the file suffix on the matching .ogg (English = "", "_russian", etc.).
+    /// the file suffix on the matching .ogg (English = "", "-fre", etc.).
     /// </summary>
     public List<GameLanguage> Languages { get; set; } = [];
 
@@ -158,6 +158,127 @@ public sealed class LdpProject
         VideoSource last = Videos[^1];
         return last.GlobalBase + last.PictureCount;
     }
+
+    // ----- Level structure -----
+    //
+    // Levels are what the framework actually plays: Level[n] declares a scene
+    // count and setupMoves(thisLevel, thisScene) branches on the 1-based pair.
+    // The storyboard graph is a separate concern (death links, branching,
+    // in-app play-testing), so a scene wired on the canvas still has to be
+    // assigned to a level before it reaches the exported game.
+
+    /// <summary>
+    /// Scene id → its 1-based (level, scene) position: exactly the numbers
+    /// setupMoves branches on. A scene missing from the map belongs to no level
+    /// and never reaches the exported game.
+    /// </summary>
+    public Dictionary<Guid, (int Level, int Scene)> LevelPositions()
+    {
+        Dictionary<Guid, (int, int)> map = [];
+        for (int l = 0; l < Levels.Count; l++)
+            for (int s = 0; s < Levels[l].SceneIds.Count; s++)
+                map[Levels[l].SceneIds[s]] = (l + 1, s + 1);
+        return map;
+    }
+
+    /// <summary>The level a scene plays in, or null when it is unassigned.</summary>
+    public GameLevel? LevelOf(Guid clipId) => Levels.Find(l => l.SceneIds.Contains(clipId));
+
+    /// <summary>
+    /// Appends scenes to a level, in the order given. A scene plays in exactly
+    /// one level, so each is first pulled out of whatever level held it —
+    /// including this one, which makes re-assigning also mean "move to the end".
+    /// </summary>
+    public void AssignToLevel(GameLevel level, IEnumerable<Guid> clipIds)
+    {
+        List<Guid> ids = clipIds.Distinct().Where(id => Clips.Any(c => c.Id == id)).ToList();
+        RemoveFromLevels(ids);
+        level.SceneIds.AddRange(ids);
+        SyncLevelStart(level);
+    }
+
+    /// <summary>Unassigns scenes from every level that holds them.</summary>
+    public void RemoveFromLevels(IEnumerable<Guid> clipIds)
+    {
+        HashSet<Guid> doomed = clipIds.ToHashSet();
+        foreach (GameLevel level in Levels)
+            if (level.SceneIds.RemoveAll(doomed.Contains) > 0) SyncLevelStart(level);
+    }
+
+    /// <summary>
+    /// Keeps a level's Start/IntroEnd in step with its first scene. An author
+    /// who has defined a skippable intro passage (IntroEnd past Start+1) owns
+    /// both numbers; otherwise the level simply begins where its first scene does.
+    /// </summary>
+    public void SyncLevelStart(GameLevel level)
+    {
+        if (level.SceneIds.Count == 0) return;
+        if (level.IntroEndFrame > level.StartFrame + 1) return; // author-defined intro
+        if (Clips.Find(c => c.Id == level.SceneIds[0]) is not { } first) return;
+        level.StartFrame = first.StartFrame;
+        level.IntroEndFrame = first.StartFrame + 1;
+    }
+
+    /// <summary>Adds an empty level at the end of the play order.</summary>
+    public GameLevel AddLevel(string? title = null)
+    {
+        var level = new GameLevel { Title = title ?? $"LEVEL {Levels.Count + 1}" };
+        Levels.Add(level);
+        return level;
+    }
+
+    /// <summary>Moves a level earlier/later in the play order; false when it can't.</summary>
+    public bool MoveLevel(GameLevel level, int delta)
+    {
+        int i = Levels.IndexOf(level);
+        int target = i + delta;
+        if (i < 0 || target < 0 || target >= Levels.Count) return false;
+        Levels.RemoveAt(i);
+        Levels.Insert(target, level);
+        return true;
+    }
+
+    /// <summary>Moves a scene within its level's play order; false when it can't.</summary>
+    public bool MoveSceneInLevel(GameLevel level, Guid clipId, int delta)
+    {
+        int i = level.SceneIds.IndexOf(clipId);
+        int target = i + delta;
+        if (i < 0 || target < 0 || target >= level.SceneIds.Count) return false;
+        level.SceneIds.RemoveAt(i);
+        level.SceneIds.Insert(target, clipId);
+        SyncLevelStart(level);
+        return true;
+    }
+
+    /// <summary>
+    /// Builds one level from the storyboard's success chain — the scenes the
+    /// game plays through, in order. Death scenes hang off Death ports, so the
+    /// walk never picks them up. Null when the chain holds no scenes.
+    /// </summary>
+    public GameLevel? BuildLevelFromStoryboard(string title)
+    {
+        List<Guid> chain = Graph.SuccessPathClips().Where(id => Clips.Any(c => c.Id == id)).ToList();
+        if (chain.Count == 0) return null;
+        GameLevel level = AddLevel(title);
+        AssignToLevel(level, chain);
+        return level;
+    }
+
+    /// <summary>
+    /// Scenes on the storyboard's success chain that no level plays — content
+    /// the exported game would silently drop. Drives the app's unassigned-scene
+    /// warning so the gap is visible before Hypseus is ever launched.
+    /// </summary>
+    public List<Clip> UnassignedChainScenes()
+    {
+        Dictionary<Guid, (int, int)> placed = LevelPositions();
+        return Graph.SuccessPathClips()
+            .Where(id => !placed.ContainsKey(id))
+            .Select(id => Clips.Find(c => c.Id == id))
+            .Where(c => c != null)
+            .Select(c => c!)
+            .ToList();
+    }
 }
 
 /// <summary>
@@ -205,7 +326,7 @@ public static class GameFrameworkInfo
 
 /// <summary>
 /// One selectable audio language: a display name plus the suffix appended to
-/// the base video name to find its .ogg (e.g. "_russian" → main_russian.ogg;
+/// the base video name to find its .ogg (e.g. "-fre" → main-fre.ogg;
 /// the primary track uses an empty suffix).
 /// </summary>
 public sealed class GameLanguage
@@ -257,11 +378,44 @@ public sealed class GameLevel
     /// <summary>
     /// Death behavior: -1 replay until passed, 0 skip on death, 1 replay once,
     /// N&gt;1 requeue at position N for one replay.
+    ///
+    /// -1 is the only value a game should normally ship. The others drive
+    /// setupNextLevel's requeue arithmetic (main.singe:6203), which indexes
+    /// LvlOrder by this number — 0 writes past the front of a 1-based table and
+    /// leaves the play order inconsistent, showing up as a stream of Hypseus
+    /// "tried to search without checking for search result first!" warnings.
     /// </summary>
     public int Replay { get; set; } = -1;
 
+    /// <summary>The default, loop-until-passed behavior every game should ship with.</summary>
+    public const int DefaultReplay = -1;
+
     /// <summary>Gameplay scenes of this level, in play order.</summary>
     public List<Guid> SceneIds { get; set; } = [];
+
+    /// <summary>True when the author has defined a skippable intro passage.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool HasIntro => IntroEndFrame > StartFrame + 1;
+}
+
+/// <summary>Friendly labels for a level's death-replay behavior.</summary>
+public static class ReplayCatalog
+{
+    public sealed record Entry(int Value, string Display)
+    {
+        public override string ToString() => Display;
+    }
+
+    public static readonly Entry[] Entries =
+    [
+        new(-1, "Replay until passed (default)"),
+        new(0, "Skip the scene on death"),
+        new(1, "Replay once, then move on"),
+    ];
+
+    /// <summary>Label for any stored value, including the N&gt;1 requeue form.</summary>
+    public static string Display(int value) =>
+        Array.Find(Entries, e => e.Value == value)?.Display ?? $"Requeue at scene {value}";
 }
 
 /// <summary>One M2V file in the project's global frame space.</summary>
@@ -300,4 +454,27 @@ public sealed class Clip
 
     [System.Text.Json.Serialization.JsonIgnore]
     public int FrameCount => EndFrame - StartFrame + 1;
+
+    /// <summary>
+    /// An independent copy over the same frames, with fresh ids throughout.
+    /// Lets a passage be replayed in a second level: one scene plays in exactly
+    /// one level, so re-using footage means a second scene over the same range.
+    /// </summary>
+    public Clip Duplicate(string? name = null) => new()
+    {
+        Name = name ?? $"{Name} (copy)",
+        Description = Description,
+        StartFrame = StartFrame,
+        EndFrame = EndFrame,
+        Interactions = Interactions.Select(m => new InteractionMarker
+        {
+            Frame = m.Frame,
+            Input = m.Input,
+            EndFrameOverride = m.EndFrameOverride,
+            DeathClipId = m.DeathClipId,
+            ExplicitNoDeath = m.ExplicitNoDeath,
+            AltInput = m.AltInput,
+            Note = m.Note,
+        }).ToList(),
+    };
 }

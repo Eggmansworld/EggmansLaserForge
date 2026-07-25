@@ -62,22 +62,29 @@
                 <Border Name="LogPanel" IsVisible="False" Height="170" Background="{DynamicResource BgCanvas}"
                         BorderBrush="{DynamicResource Divider}" BorderThickness="0,0,0,1">
                     <ScrollViewer Name="LogScroll">
+                        <!-- Selectable so a line can be dragged out with the mouse;
+                             ⧉ Copy next to the toggle grabs the whole history. -->
                         <ItemsControl Name="LogList" Margin="10,6">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding}" Foreground="{DynamicResource FgMuted}"
-                                               FontFamily="Consolas,monospace" FontSize="12"
-                                               TextWrapping="Wrap" Margin="0,1"/>
+                                    <SelectableTextBlock Text="{Binding}" Foreground="{DynamicResource FgMuted}"
+                                                         FontFamily="Consolas,monospace" FontSize="12"
+                                                         TextWrapping="Wrap" Margin="0,1"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
                     </ScrollViewer>
                 </Border>
                 <DockPanel Margin="10,3">
-                    <Button Name="LogToggle" DockPanel.Dock="Right" Content="Log ▲" Focusable="False"
-                            FontSize="11" Padding="8,2" Click="OnToggleLog"/>
-                    <TextBlock Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"
-                               FontSize="12" TextTrimming="CharacterEllipsis" Text="Ready."/>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6">
+                        <Button Name="CopyLogButton" Content="⧉ Copy" Focusable="False"
+                                FontSize="11" Padding="8,2" Click="OnCopyLog"
+                                ToolTip.Tip="Copy the whole log to the clipboard"/>
+                        <Button Name="LogToggle" Content="Log ▲" Focusable="False"
+                                FontSize="11" Padding="8,2" Click="OnToggleLog"/>
+                    </StackPanel>
+                    <SelectableTextBlock Name="StatusText" VerticalAlignment="Center" Foreground="{DynamicResource FgMuted}"
+                                         FontSize="12" TextTrimming="CharacterEllipsis" Text="Ready."/>
                 </DockPanel>
             </StackPanel>
         </Border>
@@ -239,6 +246,14 @@
                                 <DockPanel Margin="2">
                                     <Image DockPanel.Dock="Left" Source="{Binding Thumbnail}" Width="88" Height="50"
                                            Stretch="UniformToFill" Margin="0,0,8,0"/>
+                                    <!-- Level·scene position: the numbers setupMoves branches on.
+                                         Absent means no level plays this scene yet. -->
+                                    <Border DockPanel.Dock="Right" IsVisible="{Binding HasLevel}"
+                                            Background="{DynamicResource Accent}" CornerRadius="4" Padding="5,1"
+                                            VerticalAlignment="Center" Margin="6,0,2,0">
+                                        <TextBlock Text="{Binding LevelBadge}" Foreground="{DynamicResource BgCanvas}"
+                                                   FontFamily="Consolas,monospace" FontSize="11" FontWeight="Bold"/>
+                                    </Border>
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}" Foreground="{DynamicResource FgPrimary}" FontSize="13" TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FgFaint}" FontSize="13" FontFamily="Consolas,monospace"/>
@@ -252,7 +267,7 @@
                             <Button Name="PlayClipButton" Content="▶ Play Scene" Focusable="False" IsEnabled="False" Click="OnPlayClip"/>
                             <Button Name="GotoClipButton" Content="Go to Start" Focusable="False" IsEnabled="False" Click="OnGotoClip"/>
                             <Button Name="RenameClipButton" Content="✎" Focusable="False" Width="32" IsEnabled="False"
-                                    Click="OnRenameClip" ToolTip.Tip="Rename scene"/>
+                                    Click="OnEditScene" ToolTip.Tip="Edit scene name and frame range (moves are kept)"/>
                             <Button Name="ThumbClipButton" Content="📷" Focusable="False" Width="32" IsEnabled="False"
                                     Click="OnSetThumbnail" ToolTip.Tip="Use the current frame as this scene's thumbnail"/>
                             <Button Name="DeleteClipButton" Content="Delete" Focusable="False" IsEnabled="False" Click="OnDeleteClip"/>

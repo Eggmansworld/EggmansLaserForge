@@ -32,6 +32,9 @@ public partial class StoryboardView : UserControl
     public event Action<Clip>? PlaySceneRequested; // play just this one scene
     public event Action<IReadOnlyList<Clip>>? PlayFlowRequested;
 
+    /// <summary>Scenes were assigned to (or pulled out of) a level from the canvas.</summary>
+    public event Action? LevelAssignmentChanged;
+
     private LdpProject? _project;
     private Func<Guid, ClipItem?>? _clipLookup;
 
@@ -50,6 +53,11 @@ public partial class StoryboardView : UserControl
     private Avalonia.Controls.Shapes.Path? _tempWire;
     private readonly HashSet<StoryNode> _selectedNodes = [];
     private StoryEdge? _selectedEdge;
+
+    // Level context, recomputed once per rebuild and read by every node's chip.
+    private Dictionary<Guid, (int Level, int Scene)> _levelPositions = [];
+    private HashSet<Guid> _deathClips = [];
+    private HashSet<Guid> _chainClips = [];
 
     public StoryboardView()
     {
@@ -251,10 +259,12 @@ public partial class StoryboardView : UserControl
     {
         NodeLayer.Children.Clear();
         EdgeLayer.Children.Clear();
+        BandLayer.Children.Clear();
         _nodeControls.Clear();
         _edgePaths.Clear();
         if (_project == null) return;
 
+        RefreshLevelIndex();
         foreach (StoryNode node in _project.Graph.Nodes)
         {
             Control control = BuildNode(node);
@@ -262,6 +272,7 @@ public partial class StoryboardView : UserControl
             NodeLayer.Children.Add(control);
             PositionNode(node);
         }
+        RebuildBands();
         foreach (StoryEdge edge in _project.Graph.Edges.ToList())
         {
             if (_project.Graph.NodeById(edge.FromNode) == null || _project.Graph.NodeById(edge.ToNode) == null)
@@ -366,6 +377,14 @@ public partial class StoryboardView : UserControl
 
         canvas.Children.Add(body);
 
+        // Level tab, straddling the top edge like a folder label.
+        if (!isStart && LevelChip(node) is { } chip)
+        {
+            Canvas.SetRight(chip, 8);
+            Canvas.SetTop(chip, -9);
+            canvas.Children.Add(chip);
+        }
+
         // Input port (left edge) for everything except Start.
         if (!isStart)
             canvas.Children.Add(MakePort(node, null, -PortR, h / 2 - PortR, (IBrush?)this.FindResource("FgMuted")));
@@ -389,6 +408,125 @@ public partial class StoryboardView : UserControl
 
     private ClipItem? ClipFor(StoryNode node) =>
         node.ClipId is { } id ? _clipLookup?.Invoke(id) : null;
+
+    // ---------- Level context ----------
+
+    private void RefreshLevelIndex()
+    {
+        if (_project == null)
+        {
+            _levelPositions = [];
+            _deathClips = [];
+            _chainClips = [];
+            return;
+        }
+        _levelPositions = _project.LevelPositions();
+        _chainClips = _project.Graph.SuccessPathClips().ToHashSet();
+
+        // Scenes the game only reaches by dying: the curated pool plus anything
+        // wired from a Death port. They belong to no level by design.
+        _deathClips = [.. _project.DeathPool];
+        foreach (StoryEdge edge in _project.Graph.Edges.Where(e => e.FromPort == PortKind.Death))
+            if (_project.Graph.NodeById(edge.ToNode)?.ClipId is { } id) _deathClips.Add(id);
+    }
+
+    /// <summary>
+    /// The node's standing in the exported game: its level·scene numbers once a
+    /// level plays it, DEATH when it is only reached by dying, or an amber
+    /// warning when it sits on the main line but no level owns it — the case
+    /// that would otherwise vanish from the script without a word.
+    /// </summary>
+    private Border? LevelChip(StoryNode node)
+    {
+        if (node.ClipId is not { } clipId) return null;
+
+        if (_levelPositions.TryGetValue(clipId, out (int Level, int Scene) at))
+        {
+            // A level scene with no moves crashes the framework (it clears the
+            // move table before setupMoves, then indexes it unguarded) and can
+            // never complete, so it reads as an error, not an empty scene.
+            bool noMoves = ClipFor(node)?.Clip.Interactions.Count == 0;
+            Border chip = Chip($"L{at.Level}·S{at.Scene}" + (noMoves ? " ⚠" : ""),
+                               noMoves ? "PortDeath" : "Accent");
+            if (noMoves) ToolTip.SetTip(chip, "In a level but has no moves - the framework needs at least one (a Skip move covers a passage with no action).");
+            return chip;
+        }
+        if (_deathClips.Contains(clipId)) return Chip("DEATH", "PortDeath");
+        if (_chainClips.Contains(clipId)) return Chip("no level", "AccentAmber");
+        return null;
+    }
+
+    private Border Chip(string text, string brushKey) => new()
+    {
+        Background = (IBrush?)this.FindResource(brushKey),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(6, 1),
+        Child = new TextBlock
+        {
+            Text = text,
+            Foreground = (IBrush?)this.FindResource("BgCanvas"),
+            FontFamily = new FontFamily("Consolas,monospace"),
+            FontSize = 10,
+            FontWeight = FontWeight.Bold,
+        },
+    };
+
+    /// <summary>
+    /// Draws a translucent band behind each level's nodes, labelled with its
+    /// number and title. It is derived from where the nodes actually sit, so
+    /// grouping stays visible after hand-dragging, not only after Auto-Layout.
+    /// </summary>
+    private void RebuildBands()
+    {
+        BandLayer.Children.Clear();
+        if (_project == null) return;
+
+        for (int i = 0; i < _project.Levels.Count; i++)
+        {
+            GameLevel level = _project.Levels[i];
+            List<StoryNode> nodes = level.SceneIds
+                .SelectMany(id => _project.Graph.Nodes.Where(n => n.ClipId == id))
+                .ToList();
+            if (nodes.Count == 0) continue;
+
+            const double pad = 18, labelH = 18;
+            double minX = nodes.Min(n => n.X) - pad;
+            double minY = nodes.Min(n => n.Y) - pad - labelH;
+            double maxX = nodes.Max(n => n.X + NodeW) + pad;
+            double maxY = nodes.Max(n => n.Y + NodeH) + pad;
+
+            var band = new Border
+            {
+                Width = maxX - minX,
+                Height = maxY - minY,
+                CornerRadius = new CornerRadius(12),
+                Background = BandBrush(i, 0.07),
+                BorderBrush = BandBrush(i, 0.5),
+                BorderThickness = new Thickness(1.5),
+                IsHitTestVisible = false, // never steal a pan or a node press
+            };
+            Canvas.SetLeft(band, minX);
+            Canvas.SetTop(band, minY);
+            BandLayer.Children.Add(band);
+
+            var label = new TextBlock
+            {
+                Text = $"L{i + 1}  {level.Title}".TrimEnd(),
+                Foreground = BandBrush(i, 0.95),
+                FontSize = 12,
+                FontWeight = FontWeight.Bold,
+                IsHitTestVisible = false,
+            };
+            Canvas.SetLeft(label, minX + 12);
+            Canvas.SetTop(label, minY + 3);
+            BandLayer.Children.Add(label);
+        }
+    }
+
+    /// <summary>A distinct hue per level. Golden-angle steps keep consecutive
+    /// bands far apart in color however many levels a game grows to.</summary>
+    private static IBrush BandBrush(int levelIndex, double opacity) =>
+        new SolidColorBrush(new HsvColor(1, levelIndex * 137.508 % 360, 0.55, 0.95).ToRgb(), opacity);
 
     private ContextMenu BuildNodeMenu(StoryNode node)
     {
@@ -429,7 +567,67 @@ public partial class StoryboardView : UserControl
             Rebuild();
             GraphChanged?.Invoke();
         }));
+
+        menu.Items.Add(new Separator());
+        var assign = new MenuItem { Header = "Assign to level" };
+        menu.Items.Add(assign);
+        // The level list grows as the author works, so the submenu is filled
+        // when the menu opens rather than when the node was built.
+        menu.Opening += (_, _) => FillAssignMenu(assign, node);
         return menu;
+    }
+
+    /// <summary>
+    /// Fills the assign submenu against the levels that exist right now. It
+    /// acts on the whole selection when the right-clicked node is part of it,
+    /// so a Ctrl+click group goes into a level in one move.
+    /// </summary>
+    private void FillAssignMenu(MenuItem assign, StoryNode node)
+    {
+        assign.Items.Clear();
+        if (_project == null) return;
+
+        List<Guid> clips = TargetClips(node);
+        assign.IsEnabled = clips.Count > 0;
+        if (clips.Count == 0) return;
+        assign.Header = clips.Count > 1 ? $"Assign {clips.Count} scenes to level" : "Assign to level";
+
+        MenuItem Action(string header, Action act)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => { act(); LevelAssignmentChanged?.Invoke(); };
+            return item;
+        }
+
+        for (int i = 0; i < _project.Levels.Count; i++)
+        {
+            GameLevel level = _project.Levels[i];
+            assign.Items.Add(Action($"L{i + 1}   {level.Title}   ({level.SceneIds.Count} scenes)",
+                () => _project.AssignToLevel(level, clips)));
+        }
+        if (_project.Levels.Count > 0) assign.Items.Add(new Separator());
+        assign.Items.Add(Action("＋ New level", () => _project.AssignToLevel(_project.AddLevel(), clips)));
+        assign.Items.Add(new Separator());
+        assign.Items.Add(Action("Remove from level", () => _project.RemoveFromLevels(clips)));
+    }
+
+    /// <summary>
+    /// The clips a node-menu action applies to: the whole selection when the
+    /// clicked node is part of it, otherwise just that node. Ordered the way
+    /// the canvas reads — row by row, left to right — since that ordering
+    /// becomes the level's scene order. Y is bucketed into rows so a few
+    /// pixels of drift can't scramble a hand-arranged line.
+    /// </summary>
+    private List<Guid> TargetClips(StoryNode node)
+    {
+        IEnumerable<StoryNode> nodes = _selectedNodes.Contains(node)
+            ? _selectedNodes.OrderBy(n => Math.Round(n.Y / (NodeH + 40))).ThenBy(n => n.X)
+            : [node];
+        return nodes
+            .Where(n => n.Kind == NodeKind.Clip && n.ClipId != null)
+            .Select(n => n.ClipId!.Value)
+            .Distinct()
+            .ToList();
     }
 
     private static IEnumerable<(PortKind Port, double Fraction)> OutputPorts(StoryNode node) =>
@@ -655,6 +853,7 @@ public partial class StoryboardView : UserControl
         {
             if (_dragMoved)
             {
+                RebuildBands(); // bands hug the nodes, so they move with them
                 GraphChanged?.Invoke(); // positions changed
             }
             else if (_dragPressNode is { } pressed && _selectedNodes.Count > 1)
@@ -854,45 +1053,108 @@ public partial class StoryboardView : UserControl
         ApplyView();
     }
 
+    private const double LayoutGapX = 70;
+    private const double LayoutGapY = 40;
+
+    /// <summary>
+    /// Lays the graph out by level: one horizontal band per level, its scenes
+    /// left to right in play order, with each scene's death and timeout
+    /// branches stacked beneath it. Scenes on the main line that no level owns
+    /// get a band of their own at the end, and anything left over lands below —
+    /// so the canvas mirrors the structure the exporter will write.
+    /// </summary>
     private void OnAutoLayout(object? sender, RoutedEventArgs e)
     {
         if (_project == null) return;
         StoryGraph graph = _project.Graph;
 
-        // Main line: the success chain, left to right. Everything else drops
-        // to rows beneath, grouped under the node that links to it.
-        Dictionary<Guid, int> depth = [];
-        List<StoryNode> chain = [];
-        StoryNode? node = graph.Start;
-        HashSet<Guid> visited = [];
-        while (node != null && visited.Add(node.Id))
+        // A clip can appear on more than one node; every one gets a slot.
+        Dictionary<Guid, List<StoryNode>> byClip = [];
+        foreach (StoryNode n in graph.Nodes)
+            if (n.ClipId is { } id)
+                (byClip.TryGetValue(id, out List<StoryNode>? list) ? list : byClip[id] = []).Add(n);
+
+        const double x0 = 60, bandGap = 60;
+        double y = 120;
+        HashSet<Guid> placed = [];
+
+        if (graph.Start is { } start)
         {
-            chain.Add(node);
-            PortKind port = node.Kind == NodeKind.Start ? PortKind.Out : PortKind.Success;
-            StoryEdge? edge = graph.EdgeFrom(node.Id, port);
-            node = edge != null ? graph.NodeById(edge.ToNode) : null;
+            start.X = x0;
+            start.Y = y + (NodeH - StartH) / 2;
+            placed.Add(start.Id);
         }
-        for (int i = 0; i < chain.Count; i++)
+        double laneX = x0 + StartW + LayoutGapX;
+
+        foreach (GameLevel level in _project.Levels)
         {
-            chain[i].X = 60 + i * (NodeW + 70);
-            chain[i].Y = 200;
-            depth[chain[i].Id] = i;
+            double bottom = LayoutBand(level.SceneIds, laneX, y, placed, byClip);
+            if (bottom > y) y = bottom + bandGap;
         }
 
-        double orphanY = 200 + NodeH + 90;
-        foreach (StoryNode other in graph.Nodes.Where(n => !visited.Contains(n.Id)))
+        // Main-line scenes still waiting for a level, kept together so the gap
+        // reads as one thing to fix rather than scattered strays.
+        List<Guid> stranded = graph.SuccessPathClips()
+            .Where(id => byClip.TryGetValue(id, out List<StoryNode>? ns) && ns.Any(n => !placed.Contains(n.Id)))
+            .ToList();
+        if (stranded.Count > 0)
         {
-            StoryEdge? incoming = graph.Edges.Find(x => x.ToNode == other.Id && visited.Contains(x.FromNode));
-            double x = incoming != null && depth.TryGetValue(incoming.FromNode, out int i)
-                ? 60 + i * (NodeW + 70) + NodeW * 0.5
-                : 60;
-            other.X = x;
-            other.Y = orphanY;
-            orphanY += NodeH + 40;
+            double bottom = LayoutBand(stranded, laneX, y, placed, byClip);
+            if (bottom > y) y = bottom + bandGap;
+        }
+
+        // Whatever is left is loose on the canvas: park it in rows.
+        double looseX = laneX;
+        foreach (StoryNode other in graph.Nodes.Where(n => !placed.Contains(n.Id)).ToList())
+        {
+            other.X = looseX;
+            other.Y = y;
+            looseX += NodeW + LayoutGapX;
+            if (looseX > laneX + 5 * (NodeW + LayoutGapX))
+            {
+                looseX = laneX;
+                y += NodeH + LayoutGapY;
+            }
         }
 
         Rebuild();
         GraphChanged?.Invoke();
         OnFitView(null, null!);
+    }
+
+    /// <summary>
+    /// Places one band's scenes left to right at <paramref name="y"/>, hanging
+    /// each scene's non-success branches underneath it. Returns the Y of the
+    /// band's lowest edge (or <paramref name="y"/> when nothing was placed).
+    /// </summary>
+    private double LayoutBand(IEnumerable<Guid> clipIds, double x, double y,
+                              HashSet<Guid> placed, Dictionary<Guid, List<StoryNode>> byClip)
+    {
+        double bottom = y;
+        foreach (Guid clipId in clipIds)
+        {
+            if (!byClip.TryGetValue(clipId, out List<StoryNode>? nodes)) continue;
+            foreach (StoryNode node in nodes)
+            {
+                if (!placed.Add(node.Id)) continue;
+                node.X = x;
+                node.Y = y;
+                bottom = Math.Max(bottom, y + NodeH);
+
+                double childY = y + NodeH + LayoutGapY;
+                foreach (StoryEdge edge in _project!.Graph.Edges
+                             .Where(edge => edge.FromNode == node.Id && edge.FromPort != PortKind.Success))
+                {
+                    if (_project.Graph.NodeById(edge.ToNode) is not { } child) continue;
+                    if (!placed.Add(child.Id)) continue;
+                    child.X = x;
+                    child.Y = childY;
+                    bottom = Math.Max(bottom, childY + NodeH);
+                    childY += NodeH + 30;
+                }
+                x += NodeW + LayoutGapX;
+            }
+        }
+        return bottom;
     }
 }

@@ -10,7 +10,7 @@
                            Foreground="{DynamicResource FgFaint}" FontSize="12" VerticalAlignment="Center" Text=""/>
             </DockPanel>
         </Border>
-        <ScrollViewer Background="{DynamicResource BgCanvas}">
+        <ScrollViewer Name="SetupScroll" Background="{DynamicResource BgCanvas}">
             <StackPanel Name="SlotsPanel" Margin="16" Spacing="4" MaxWidth="820" HorizontalAlignment="Left"/>
         </ScrollViewer>
     </DockPanel>

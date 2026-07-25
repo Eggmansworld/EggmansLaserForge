@@ -1,7 +1,9 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using Ldp.Project;
 using System;
 using System.Linq;
@@ -21,8 +23,16 @@ public partial class GameSetupView : UserControl
     private Func<int?>? _currentFrame;
     private IReadOnlyDictionary<string, string> _templateDefaults = new Dictionary<string, string>();
 
+    /// <summary>Levels whose advanced row (replay, mirrors, intro) is open.
+    /// Held by reference so it survives the panel rebuilds every edit triggers.</summary>
+    private readonly HashSet<GameLevel> _expandedLevels = [];
+
     public event Action? SlotsChanged;
     public event Action<int>? GotoFrameRequested;
+
+    /// <summary>Level structure changed — the scenes list badges and storyboard
+    /// chips are now stale, and the project needs saving.</summary>
+    public event Action? LevelsChanged;
 
     public GameSetupView()
     {
@@ -43,6 +53,10 @@ public partial class GameSetupView : UserControl
 
     private void Rebuild()
     {
+        // Every level edit rebuilds the whole page; without restoring the scroll
+        // position the view would snap to the top on each one, and the LEVELS
+        // section lives near the bottom.
+        Vector offset = SetupScroll.Offset;
         SlotsPanel.Children.Clear();
         SummaryText.Text = "";
         if (_project == null) return;
@@ -100,6 +114,9 @@ public partial class GameSetupView : UserControl
                      or StillSlot.DifficultyHard or StillSlot.DifficultyExtreme))
             SlotsPanel.Children.Add(StillRow(info));
 
+        AddHeader("LEVELS (the play order the framework runs)");
+        SlotsPanel.Children.Add(LevelsBlock());
+
         AddHeader("SCORING (leave blank to keep the shown default)");
         foreach (ScoringCatalog.Entry entry in ScoringCatalog.Entries)
             SlotsPanel.Children.Add(ScoringRow(entry));
@@ -108,6 +125,470 @@ public partial class GameSetupView : UserControl
         SlotsPanel.Children.Add(LanguagesBlock());
 
         UpdateSummary();
+        Dispatcher.UIThread.Post(() => SetupScroll.Offset = offset, DispatcherPriority.Loaded);
+    }
+
+    // ---------- Levels ----------
+
+    /// <summary>
+    /// Play-order editor. Levels are what the framework actually runs: a scene
+    /// only reaches the exported script once a level holds it, no matter how it
+    /// is wired on the storyboard. Selection lives in the SCENES list (which
+    /// already multi-selects), so this panel owns structure — order, titles,
+    /// intros — rather than picking.
+    /// </summary>
+    private Control LevelsBlock()
+    {
+        var panel = new StackPanel { Spacing = 6 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "A scene reaches the exported game only when a level holds it — storyboard wires alone " +
+                   "aren't enough. Select scenes in the SCENES list (Ctrl+click for several), then " +
+                   "right-click → Assign to Level.",
+            Foreground = (IBrush?)this.FindResource("FgFaint"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var add = new Button { Content = "＋ Add Level", Focusable = false };
+        add.Click += (_, _) =>
+        {
+            GameLevel created = _project!.AddLevel();
+            Commit();
+            SummaryText.Text = $"Added '{created.Title}' — now assign scenes to it.";
+        };
+        bar.Children.Add(add);
+
+        var build = new Button { Content = "⚙ Build Level from Storyboard", Focusable = false };
+        ToolTip.SetTip(build,
+            "Creates one level holding every scene on the storyboard's success chain, in order. " +
+            "Death scenes hang off Death ports, so they are never swept in. Split it afterwards with ＋ Add Level.");
+        build.Click += (_, _) =>
+        {
+            if (_project!.BuildLevelFromStoryboard($"LEVEL {_project.Levels.Count + 1}") is not { } level)
+            {
+                SummaryText.Text = "The storyboard has no chained scenes to build a level from.";
+                return;
+            }
+            Commit();
+            SummaryText.Text = $"Built '{level.Title}' from the storyboard — {level.SceneIds.Count} scenes in chain order.";
+        };
+        bar.Children.Add(build);
+        panel.Children.Add(bar);
+
+        if (_project!.Levels.Count == 0)
+            panel.Children.Add(Notice(
+                "No levels yet — the exported script has no playable content (finalstage = 0, empty setupMoves).",
+                "PortDeath"));
+
+        for (int i = 0; i < _project.Levels.Count; i++)
+            panel.Children.Add(LevelCard(_project.Levels[i], i));
+
+        List<Clip> stranded = _project.UnassignedChainScenes();
+        if (stranded.Count > 0)
+            panel.Children.Add(Notice(
+                $"⚠ {stranded.Count} scene(s) on the storyboard's success chain belong to no level and will not " +
+                $"be exported: {string.Join(", ", stranded.Take(4).Select(c => c.Name))}" +
+                (stranded.Count > 4 ? ", …" : ""),
+                "AccentAmber"));
+
+        return panel;
+    }
+
+    /// <summary>
+    /// Applies a level edit. The window owns the response — persist, repaint
+    /// this panel, refresh the scene badges and storyboard chips — so a change
+    /// never repaints from two places and fights itself.
+    /// </summary>
+    private void Commit() => LevelsChanged?.Invoke();
+
+    /// <summary>
+    /// Commit from inside a LostFocus handler. Deferred a dispatcher pass so the
+    /// panel is not rebuilt mid focus-transition, which would destroy the very
+    /// control the focus is moving to.
+    /// </summary>
+    private void CommitDeferred() => Dispatcher.UIThread.Post(Commit);
+
+    private Control LevelCard(GameLevel level, int index)
+    {
+        LdpProject project = _project!;
+        var stack = new StackPanel { Spacing = 3 };
+        var card = new Border
+        {
+            Background = (IBrush?)this.FindResource("BgNode"),
+            BorderBrush = (IBrush?)this.FindResource("Divider"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(8, 6),
+            Margin = new Thickness(0, 2),
+            Child = stack,
+        };
+
+        // ---- Header: L# · title · reorder · clipboard · delete ----
+        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+        header.Children.Add(Chip($"L{index + 1}", "Accent"));
+
+        var title = new TextBox
+        {
+            Text = level.Title,
+            Watermark = "Level title (shown in game)",
+            FontSize = 13,
+            Margin = new Thickness(8, 0),
+        };
+        title.LostFocus += (_, _) =>
+        {
+            string text = (title.Text ?? "").Trim();
+            if (text == level.Title) return;
+            level.Title = text;
+            CommitDeferred(); // the storyboard band label carries this title too
+        };
+        Grid.SetColumn(title, 1);
+        header.Children.Add(title);
+
+        int sceneCount = level.SceneIds.Count;
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3 };
+        buttons.Children.Add(SmallButton("▲", "Move this level earlier in the play order",
+            index > 0, () => { project.MoveLevel(level, -1); Commit(); }));
+        buttons.Children.Add(SmallButton("▼", "Move this level later in the play order",
+            index < project.Levels.Count - 1, () => { project.MoveLevel(level, +1); Commit(); }));
+        buttons.Children.Add(SmallButton("✂", $"Cut all {sceneCount} scene(s) — paste moves them into another level",
+            sceneCount > 0, () => { SceneClipboard.Set(level.SceneIds, cut: true); Commit(); }));
+        buttons.Children.Add(SmallButton("⧉", $"Copy all {sceneCount} scene(s) — paste duplicates them over the same frames",
+            sceneCount > 0, () => { SceneClipboard.Set(level.SceneIds, cut: false); Commit(); }));
+        buttons.Children.Add(SmallButton("📋", SceneClipboard.PasteLabel + " into this level",
+            SceneClipboard.HasContent, () => PasteInto(level)));
+        buttons.Children.Add(SmallButton("✕", "Delete this level (its scenes stay in the project, unassigned)",
+            true, () =>
+            {
+                project.Levels.Remove(level);
+                _expandedLevels.Remove(level);
+                Commit();
+                SummaryText.Text = $"Level deleted — its {sceneCount} scene(s) are now unassigned.";
+            }));
+        Grid.SetColumn(buttons, 2);
+        header.Children.Add(buttons);
+        stack.Children.Add(header);
+
+        // ---- Info line ----
+        bool expanded = _expandedLevels.Contains(level);
+        var info = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Margin = new Thickness(2, 1, 0, 0) };
+        info.Children.Add(FrameLink($"starts {level.StartFrame:D6}", level.StartFrame));
+        if (level.HasIntro) info.Children.Add(FrameLink($"intro ends {level.IntroEndFrame:D6}", level.IntroEndFrame));
+        info.Children.Add(Faint($"{sceneCount} scene{(sceneCount == 1 ? "" : "s")}"));
+        info.Children.Add(Faint(ReplayCatalog.Display(level.Replay)));
+        var more = new Button
+        {
+            Content = expanded ? "▾ less" : "▸ more",
+            Focusable = false,
+            FontSize = 11,
+            Padding = new Thickness(6, 0),
+        };
+        more.Click += (_, _) =>
+        {
+            if (!_expandedLevels.Remove(level)) _expandedLevels.Add(level);
+            Rebuild();
+        };
+        info.Children.Add(more);
+        stack.Children.Add(info);
+
+        if (expanded) stack.Children.Add(LevelAdvanced(level));
+
+        // ---- Scene rows ----
+        if (sceneCount == 0)
+        {
+            stack.Children.Add(Faint("No scenes yet — select them in the SCENES list, then right-click → Assign to Level."));
+        }
+        else
+        {
+            for (int s = 0; s < sceneCount; s++)
+                stack.Children.Add(LevelSceneRow(level, s));
+        }
+
+        return card;
+    }
+
+    /// <summary>Replay behavior, mirror offsets and the intro passage — the
+    /// Level[] fields most games never touch.</summary>
+    private Control LevelAdvanced(GameLevel level)
+    {
+        var panel = new StackPanel
+        {
+            Spacing = 3,
+            Margin = new Thickness(2, 4, 0, 4),
+        };
+
+        var replayRow = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
+        replayRow.Children.Add(Faint("On death"));
+        var replay = new ComboBox
+        {
+            ItemsSource = ReplayCatalog.Entries,
+            SelectedItem = Array.Find(ReplayCatalog.Entries, en => en.Value == level.Replay),
+            FontSize = 12,
+            MinWidth = 250,
+        };
+        // DropDownClosed, not SelectionChanged: the latter also fires while the
+        // combo materialises its items, which is one way a level can quietly
+        // end up on something other than the loop-until-passed default. This
+        // only fires when the author actually opened the list and chose.
+        replay.DropDownClosed += (_, _) =>
+        {
+            if (replay.SelectedItem is not ReplayCatalog.Entry entry || entry.Value == level.Replay) return;
+            level.Replay = entry.Value;
+            Commit();
+        };
+        Grid.SetColumn(replay, 1);
+        replayRow.Children.Add(replay);
+        panel.Children.Add(replayRow);
+
+        panel.Children.Add(NumberRow("Intro starts at frame", level.StartFrame, v =>
+        {
+            level.StartFrame = v;
+            if (level.IntroEndFrame <= v) level.IntroEndFrame = v + 1;
+        }, "Global frame the level begins on. Leave it matching the first scene unless the level opens with a skippable intro passage."));
+        panel.Children.Add(NumberRow("Intro ends at frame", level.IntroEndFrame, v => level.IntroEndFrame = v,
+            "End of the skippable intro. Keep it at start+1 for no intro — the level then follows its first scene automatically."));
+        panel.Children.Add(NumberRow("Mirror offset", level.Mirror, v => level.Mirror = v,
+            "Frame offset of an exact mirrored copy of this level's video (0 = none)."));
+        panel.Children.Add(NumberRow("Death mirror offset", level.DeathMirror, v => level.DeathMirror = v,
+            "Frame offset of mirrored death videos (0 = none)."));
+        return panel;
+    }
+
+    private Control LevelSceneRow(GameLevel level, int sceneIndex)
+    {
+        LdpProject project = _project!;
+        Guid id = level.SceneIds[sceneIndex];
+        Clip? clip = project.Clips.Find(c => c.Id == id);
+
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"),
+            Margin = new Thickness(12, 1, 0, 1),
+        };
+        // A scene with no moves is fatal to the framework, not just empty: it
+        // clears the move table before setupMoves and then indexes it unguarded,
+        // and the scene can never complete. Flag it where the author assigns it.
+        bool noMoves = clip is { Interactions.Count: 0 };
+        row.Children.Add(Chip($"S{sceneIndex + 1}", clip == null || noMoves ? "PortDeath" : "AccentAmber"));
+
+        var label = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 0),
+        };
+        label.Children.Add(new TextBlock
+        {
+            Text = clip?.Name ?? "(scene missing from the project)",
+            Foreground = (IBrush?)this.FindResource(clip == null ? "PortDeath" : "FgPrimary"),
+            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        });
+        if (noMoves)
+        {
+            var flag = new TextBlock
+            {
+                Text = "⚠ no moves",
+                Foreground = (IBrush?)this.FindResource("PortDeath"),
+                FontSize = 11,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            ToolTip.SetTip(flag,
+                "The framework crashes on a level scene with no moves, and the scene can never complete. " +
+                "Add at least one move - a Skip move covers a passage with no action.");
+            label.Children.Add(flag);
+        }
+        Grid.SetColumn(label, 1);
+        row.Children.Add(label);
+
+        if (clip != null)
+        {
+            Control range = FrameLink($"{clip.StartFrame:D6}–{clip.EndFrame:D6}", clip.StartFrame);
+            range.Margin = new Thickness(0, 0, 8, 0);
+            Grid.SetColumn(range, 2);
+            row.Children.Add(range);
+        }
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 3 };
+        buttons.Children.Add(SmallButton("▲", "Play this scene earlier in the level",
+            sceneIndex > 0, () => { project.MoveSceneInLevel(level, id, -1); Commit(); }));
+        buttons.Children.Add(SmallButton("▼", "Play this scene later in the level",
+            sceneIndex < level.SceneIds.Count - 1, () => { project.MoveSceneInLevel(level, id, +1); Commit(); }));
+        buttons.Children.Add(SmallButton("✕", "Remove from this level (the scene itself is kept)",
+            true, () => { project.RemoveFromLevels([id]); Commit(); }));
+        Grid.SetColumn(buttons, 3);
+        row.Children.Add(buttons);
+        return row;
+    }
+
+    /// <summary>
+    /// Cut scenes MOVE into the level; copied scenes are DUPLICATED over the
+    /// same frames, so a passage can play again in a later level without being
+    /// stolen from the one that already owns it.
+    /// </summary>
+    private void PasteInto(GameLevel level)
+    {
+        if (_project == null || !SceneClipboard.HasContent) return;
+
+        List<Guid> ids = [];
+        foreach (Guid id in SceneClipboard.Ids)
+        {
+            if (_project.Clips.Find(c => c.Id == id) is not { } source) continue;
+            if (SceneClipboard.IsCut)
+            {
+                ids.Add(id);
+                continue;
+            }
+            Clip copy = source.Duplicate();
+            _project.Clips.Add(copy);
+            ids.Add(copy.Id);
+        }
+        if (ids.Count == 0) return;
+
+        bool moved = SceneClipboard.IsCut;
+        _project.AssignToLevel(level, ids);
+        if (moved) SceneClipboard.Clear();
+        Commit();
+        SummaryText.Text = moved
+            ? $"Moved {ids.Count} scene(s) into '{level.Title}'."
+            : $"Copied {ids.Count} scene(s) into '{level.Title}' as duplicates over the same frames.";
+    }
+
+    // ---------- Small building blocks ----------
+
+    private Border Chip(string text, string brushKey) => new()
+    {
+        Background = (IBrush?)this.FindResource(brushKey),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(6, 1),
+        VerticalAlignment = VerticalAlignment.Center,
+        Child = new TextBlock
+        {
+            Text = text,
+            Foreground = (IBrush?)this.FindResource("BgCanvas"),
+            FontFamily = new FontFamily("Consolas,monospace"),
+            FontSize = 11,
+            FontWeight = FontWeight.Bold,
+        },
+    };
+
+    private Button SmallButton(string glyph, string tip, bool enabled, Action action)
+    {
+        var button = new Button
+        {
+            Content = glyph,
+            Focusable = false,
+            IsEnabled = enabled,
+            FontSize = 12,
+            Width = 30,
+            Padding = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+        ToolTip.SetTip(button, tip);
+        button.Click += (_, _) => action();
+        return button;
+    }
+
+    private TextBlock Faint(string text) => new()
+    {
+        Text = text,
+        Foreground = (IBrush?)this.FindResource("FgFaint"),
+        FontSize = 11,
+        VerticalAlignment = VerticalAlignment.Center,
+        TextWrapping = TextWrapping.Wrap,
+    };
+
+    private Border Notice(string text, string brushKey) => new()
+    {
+        BorderBrush = (IBrush?)this.FindResource(brushKey),
+        BorderThickness = new Thickness(3, 0, 0, 0),
+        Background = (IBrush?)this.FindResource("BgPanel"),
+        CornerRadius = new CornerRadius(4),
+        Padding = new Thickness(8, 5),
+        Child = new TextBlock
+        {
+            Text = text,
+            Foreground = (IBrush?)this.FindResource(brushKey),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+        },
+    };
+
+    /// <summary>A frame number that jumps the editor there when clicked.</summary>
+    private TextBlock FrameLink(string text, int frame)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            Foreground = (IBrush?)this.FindResource("AccentAmber"),
+            FontFamily = new FontFamily("Consolas,monospace"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+        };
+        ToolTip.SetTip(block, "Click to view this frame · right-click to copy the number");
+        block.PointerPressed += (_, _) => GotoFrameRequested?.Invoke(frame);
+        AddCopyMenu(block, frame.ToString());
+        return block;
+    }
+
+    /// <summary>
+    /// Right-click "Copy" on a read-only value. Left-click already jumps the
+    /// editor to a frame, so selection can't be used for copying — but the
+    /// numbers on this page are exactly what an author needs to lift out and
+    /// paste somewhere else.
+    /// </summary>
+    private void AddCopyMenu(Control target, string text)
+    {
+        var item = new MenuItem { Header = $"Copy  {text}" };
+        item.Click += async (_, _) =>
+        {
+            if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard)
+                await clipboard.SetValueAsync(Avalonia.Input.DataFormat.Text, text);
+            SummaryText.Text = $"Copied {text} to the clipboard.";
+        };
+        var menu = new ContextMenu();
+        menu.Items.Add(item);
+        target.ContextMenu = menu;
+    }
+
+    private Control NumberRow(string label, int value, Action<int> commit, string hint)
+    {
+        var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("150,110,*") };
+        var name = Faint(label);
+        grid.Children.Add(name);
+
+        var box = new TextBox
+        {
+            Text = value.ToString(),
+            FontFamily = new FontFamily("Consolas,monospace"),
+            FontSize = 12,
+        };
+        box.LostFocus += (_, _) =>
+        {
+            if (!int.TryParse((box.Text ?? "").Trim(), out int parsed))
+            {
+                box.Text = value.ToString(); // reject non-numeric
+                return;
+            }
+            if (parsed == value) return;
+            commit(parsed);
+            CommitDeferred();
+        };
+        Grid.SetColumn(box, 1);
+        grid.Children.Add(box);
+
+        TextBlock hintBlock = Faint(hint);
+        hintBlock.Margin = new Thickness(10, 0, 0, 0);
+        hintBlock.TextTrimming = TextTrimming.CharacterEllipsis;
+        hintBlock.TextWrapping = TextWrapping.NoWrap;
+        ToolTip.SetTip(hintBlock, hint);
+        Grid.SetColumn(hintBlock, 2);
+        grid.Children.Add(hintBlock);
+        return grid;
     }
 
     private Control ScoringRow(ScoringCatalog.Entry entry)
@@ -181,7 +662,7 @@ public partial class GameSetupView : UserControl
 
         panel.Children.Add(new TextBlock
         {
-            Text = "Name shown in the menu, and the .ogg suffix (primary track = empty, e.g. main.ogg; \"_russian\" → main_russian.ogg).",
+            Text = "Name shown in the menu, and the .ogg suffix (primary track = empty, e.g. main.ogg; \"-fre\" → main-fre.ogg).",
             Foreground = (IBrush?)this.FindResource("FgFaint"),
             FontSize = 11,
             TextWrapping = Avalonia.Media.TextWrapping.Wrap,
@@ -225,7 +706,7 @@ public partial class GameSetupView : UserControl
         var add = new Button { Content = "＋ Add language", Focusable = false, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
         add.Click += (_, _) =>
         {
-            _project!.Languages.Add(new GameLanguage { Name = "New Language", Suffix = "_lang" });
+            _project!.Languages.Add(new GameLanguage { Name = "New Language", Suffix = "-lang" });
             Rebuild();
             SlotsChanged?.Invoke();
         };
@@ -240,7 +721,12 @@ public partial class GameSetupView : UserControl
         int requiredFilled =
             SlotCatalog.Ranges.Count(r => r.Required && _project.Slots.Ranges.ContainsKey(r.Slot)) +
             SlotCatalog.Stills.Count(s => s.Required && _project.Slots.Stills.ContainsKey(s.Slot));
-        SummaryText.Text = $"{requiredFilled}/{requiredTotal} required slots filled";
+        // Level state sits next to the slot count because "no levels" is the one
+        // setup gap that makes the exported script unplayable outright.
+        string levels = _project.Levels.Count == 0
+            ? "⚠ no levels — nothing playable"
+            : $"{_project.Levels.Count} level(s), {_project.Levels.Sum(l => l.SceneIds.Count)} scenes";
+        SummaryText.Text = $"{requiredFilled}/{requiredTotal} required slots filled · {levels}";
     }
 
     private void AddHeader(string text)
@@ -446,7 +932,8 @@ public partial class GameSetupView : UserControl
         {
             valueBlock.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
             valueBlock.PointerPressed += (_, _) => GotoFrameRequested?.Invoke(target);
-            ToolTip.SetTip(valueBlock, "Click to view this frame");
+            ToolTip.SetTip(valueBlock, "Click to view this frame · right-click to copy the number");
+            AddCopyMenu(valueBlock, target.ToString());
         }
         Grid.SetColumn(valueBlock, 1);
         grid.Children.Add(valueBlock);
