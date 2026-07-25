@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.6-win-x64.zip`**.
+   and download the file named **`EggmansLaserForge-0.1.7-win-x64.zip`**.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`LaserForge.exe`**.
@@ -296,6 +296,25 @@ Two kinds of slot, two ways to fill them:
 
 Any filled slot shows its value in amber; click it to jump the viewer to that
 frame and check it. Anything still **required** shows in red until you fill it.
+
+Every filled slot also shows a small **preview picture**, so you can see at a
+glance what each one actually is instead of reading frame numbers. Empty slots
+stay on a single compact line. For a video slot, the picture is the scene's
+thumbnail — click the little **📷** on it to use whatever frame the viewer is
+currently showing instead (handy when a scene opens on a black fade). For a
+still slot the picture simply *is* that frame.
+
+### Turning artwork into a slot
+
+Singe has no way to display an image file — every menu background, instructions
+page and difficulty screen is a **frame number on the disc**. So a picture has
+to become video first.
+
+**Tools → 🖼 Still Image → M2V…** does that for you: point it at a PNG and it
+writes a short `.m2v` passage, matched automatically to your project's picture
+size and frame rate, into your game's `Video` folder. You can set the length,
+add a fade in/out, and optionally drop the result straight into a slot — it is
+added as a project video with its own scene, ready to use.
 
 ---
 

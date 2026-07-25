@@ -177,6 +177,7 @@ public static class ProjectTest
         {
             Console.WriteLine("  sonic import: SKIPPED (reference script not found — set aside in temp/)");
             FfmpegCommandTest.Run(Check);
+            StillImageTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1093,6 +1094,9 @@ public static class ProjectTest
 
         // ---- Video conversion (FFmpeg command builder) ----
         FfmpegCommandTest.Run(Check);
+
+        // ---- Still image → passage ----
+        StillImageTest.Run(Check);
 
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
         return failures == 0 ? 0 : 1;

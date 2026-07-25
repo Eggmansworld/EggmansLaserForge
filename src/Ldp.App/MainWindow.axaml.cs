@@ -100,7 +100,16 @@ public partial class MainWindow : Window
         ClipList.ContextMenu.Opening += OnClipMenuOpening;
         ClipList.AddHandler(ContextRequestedEvent, OnClipContextRequested, RoutingStrategies.Tunnel);
 
-        GameSetup.SlotsChanged += () => { MarkDirty(); SaveProject(); };
+        GameSetup.SlotsChanged += async () =>
+        {
+            MarkDirty();
+            SaveProject();
+            // A newly assigned still slot has no picture yet.
+            await EnsureSlotThumbnailsAsync();
+        };
+        GameSetup.SceneThumbnail = SceneThumbnail;
+        GameSetup.FrameThumbnail = FrameThumbnail;
+        GameSetup.SetSceneThumbnailRequested += OnSetSlotSceneThumbnail;
         GameSetup.LevelsChanged += OnLevelsChanged;
         GameSetup.PathsProvider = CurrentPaths;
         GameSetup.RelocateHypseusRequested += OnRelocateHypseus;
@@ -296,10 +305,13 @@ public partial class MainWindow : Window
     private void ShowEditorPane() => ShowPane(EditorPane);
     private void ShowStoryboardPane() => ShowPane(Storyboard);
 
-    private void ShowGamePane()
+    private async void ShowGamePane()
     {
         GameSetup.Refresh();
         ShowPane(GameSetup);
+        // Slots assigned before this build had no preview picture; fill any gaps
+        // now that the panel is the thing being looked at.
+        await EnsureSlotThumbnailsAsync();
     }
 
     private void ShowPane(Control pane)
@@ -406,6 +418,7 @@ public partial class MainWindow : Window
             // Backfill thumbnails for any scenes that don't have one yet (e.g.
             // imported before thumbnail generation existed). No-op once cached.
             await GenerateMissingThumbnailsAsync();
+            await EnsureSlotThumbnailsAsync();
         }
         catch (Exception ex)
         {
@@ -428,6 +441,10 @@ public partial class MainWindow : Window
         UpdateMarkUi();
         _videoItems.Clear();
         _clipItems.Clear();
+        // Previews belong to the project that was open; another one reuses the
+        // same frame numbers for entirely different pictures.
+        foreach ((_, Bitmap image) in _thumbCache.Values) image.Dispose();
+        _thumbCache.Clear();
         VideoImage.Source = null;
         _bitmap = null;
         _undoStack.Clear();
@@ -623,6 +640,93 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---------- Slot preview pictures ----------
+
+    /// <summary>Decoded thumbnails by cache-file path, with the file's timestamp so
+    /// a re-captured picture replaces a stale one. Game Setup rebuilds its whole
+    /// panel on every edit, and re-reading ~30 PNGs from disk each time is waste.</summary>
+    private readonly Dictionary<string, (DateTime Stamp, Bitmap Image)> _thumbCache = [];
+
+    private Bitmap? LoadThumb(string path)
+    {
+        try
+        {
+            if (!File.Exists(path)) return null;
+            DateTime stamp = File.GetLastWriteTimeUtc(path);
+            if (_thumbCache.TryGetValue(path, out (DateTime Stamp, Bitmap Image) hit))
+            {
+                if (hit.Stamp == stamp) return hit.Image;
+                hit.Image.Dispose();
+            }
+            var loaded = new Bitmap(path);
+            _thumbCache[path] = (stamp, loaded);
+            return loaded;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private Bitmap? SceneThumbnail(Clip clip) =>
+        _projectPath == null ? null : LoadThumb(Path.Combine(ProjectFile.CacheDir(_projectPath), clip.Id + ".png"));
+
+    /// <summary>Picture of one global frame, for the single-frame slots. Keyed by the
+    /// frame itself, so two slots pointing at the same frame share one file — which
+    /// is exactly what a game does when frameSpecial reuses frameControls.</summary>
+    private Bitmap? FrameThumbnail(int global) =>
+        _projectPath == null ? null : LoadThumb(Path.Combine(ProjectFile.CacheDir(_projectPath), $"frame-{global}.png"));
+
+    /// <summary>Decodes and caches a picture for every still slot that lacks one.
+    /// Still slots hold a bare frame number with no scene behind them, so nothing
+    /// else in the app would ever have made these.</summary>
+    private async Task EnsureSlotThumbnailsAsync()
+    {
+        if (_project == null || _projectPath == null) return;
+        string cacheDir = ProjectFile.CacheDir(_projectPath);
+
+        List<int> todo = _project.Slots.Stills.Values
+            .Where(f => f > 0)
+            .Distinct()
+            .Where(f => !File.Exists(Path.Combine(cacheDir, $"frame-{f}.png")))
+            .Where(f => _project.VideoIndexOf(f) >= 0)
+            .OrderBy(f => f) // group by video for warm sequential decodes
+            .ToList();
+        if (todo.Count == 0) return;
+
+        int made = 0;
+        await _decodeGate.WaitAsync();
+        try
+        {
+            foreach (int global in todo)
+            {
+                int videoIndex = _project.VideoIndexOf(global);
+                if (videoIndex < 0) continue;
+                FrameEngine? engine = await GetEngineAsync(videoIndex);
+                if (engine == null) continue;
+                ScanOverlay.IsVisible = true;
+                ScanText.Text = $"Generating slot previews… {made + 1}/{todo.Count}";
+                ScanProgress.Value = (double)made / todo.Count;
+
+                int local = global - _project.Videos[videoIndex].GlobalBase;
+                try
+                {
+                    FrameImage image = await Task.Run(() => engine.GetFrame(local));
+                    Thumbnails.FromFrame(image).Save(Path.Combine(cacheDir, $"frame-{global}.png"));
+                    made++;
+                }
+                catch (Exception) { /* skip frames that fail to decode */ }
+            }
+        }
+        finally
+        {
+            _decodeGate.Release();
+            ScanOverlay.IsVisible = false;
+        }
+
+        if (made > 0) GameSetup.Refresh();
+    }
+
     private ClipItem MakeClipItem(Clip clip)
     {
         var item = new ClipItem { Clip = clip };
@@ -671,6 +775,7 @@ public partial class MainWindow : Window
 
             // Give every imported scene a thumbnail from the loaded videos.
             await GenerateMissingThumbnailsAsync();
+            await EnsureSlotThumbnailsAsync();
         }
         catch (Exception ex)
         {
@@ -1059,6 +1164,102 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Index of the project video whose file is <paramref name="absolutePath"/>, or -1.</summary>
+    // ---------- Still image → passage ----------
+
+    /// <summary>Where the game's videos live. The frame file names a single
+    /// <c>Video/</c> folder next to the script, so that is the default — but any
+    /// video already in the project is the better authority on where media sits.</summary>
+    private string? VideoFolder()
+    {
+        if (_projectPath == null) return null;
+        if (_project is { Videos.Count: > 0 })
+        {
+            string first = ProjectFile.ResolveVideoPath(_projectPath, _project.Videos[0]);
+            if (Path.GetDirectoryName(first) is { Length: > 0 } dir) return dir;
+        }
+        return Path.Combine(Path.GetDirectoryName(_projectPath)!, "Video");
+    }
+
+    /// <summary>
+    /// Turns artwork into a short .m2v passage, adds it to the project, gives it a
+    /// scene, and optionally drops it straight into a framework slot. Singe can only
+    /// point at frame numbers, so every menu still has to become video first.
+    /// </summary>
+    private async void OnStillImage(object? sender, RoutedEventArgs e)
+    {
+        StopPlayback();
+
+        (int Width, int Height, double Fps)? matchTo = null;
+        List<string> videoPaths = [];
+        if (_project is { Videos.Count: > 0 } && _projectPath != null)
+        {
+            VideoSource first = _project.Videos[0];
+            matchTo = (first.Width, first.Height, first.Fps);
+            videoPaths = _project.Videos
+                .Select(v => ProjectFile.ResolveVideoPath(_projectPath, v)).ToList();
+        }
+
+        var dialog = new StillImageDialog(_settings, VideoFolder(), matchTo, videoPaths, _project);
+        await dialog.ShowDialog(this);
+        if (dialog.Produced.Count == 0) return;
+
+        if (_project == null || _projectPath == null || !dialog.AddToProject)
+        {
+            StatusText.Text = $"Generated {dialog.Produced.Count} passage(s)" +
+                              (_project != null ? " (not added to the project)." : ".");
+            return;
+        }
+
+        int added = 0, assigned = 0;
+        foreach (StillImageDialog.ProducedStill produced in dialog.Produced)
+        {
+            if (!File.Exists(produced.M2vPath)) continue;
+            if (FindProjectVideoIndex(produced.M2vPath) >= 0) continue;
+            if (!await TryAddVideoAsync(produced.M2vPath)) continue;
+
+            added++;
+            int videoIndex = _project.Videos.Count - 1;
+            VideoSource video = _project.Videos[videoIndex];
+
+            // A scene over the whole passage makes it usable everywhere a scene is:
+            // the storyboard, level lists, and every range slot.
+            var clip = new Clip
+            {
+                Name = produced.SceneName,
+                StartFrame = video.GlobalBase,
+                EndFrame = video.GlobalBase + video.PictureCount - 1,
+            };
+            _project.Clips.Add(clip);
+            _clipItems.Add(MakeClipItem(clip));
+
+            if (produced.Range is { } range)
+            {
+                _project.Slots.Ranges[range] = clip.Id;
+                assigned++;
+            }
+            else if (produced.Still is { } still)
+            {
+                // Global frame 0 is the framework's universal "not set" sentinel —
+                // a still slot must never be handed it, even for the first video.
+                _project.Slots.Stills[still] = Math.Max(video.GlobalBase + produced.SlotFrameOffset, 1);
+                assigned++;
+            }
+        }
+
+        MarkDirty();
+        SaveProject();
+        RefreshSceneRows();
+        Storyboard.Refresh();
+        GameSetup.Refresh();
+        if (added > 0) await GenerateMissingThumbnailsAsync();
+        if (assigned > 0) await EnsureSlotThumbnailsAsync();
+
+        StatusText.Text = added == 0
+            ? "Nothing added — the generated passage(s) were already in the project."
+            : $"Added {added} still passage(s) with a scene each" +
+              (assigned > 0 ? $" and filled {assigned} slot(s)." : ".");
+    }
+
     private int FindProjectVideoIndex(string absolutePath)
     {
         if (_project == null || _projectPath == null) return -1;
@@ -1291,8 +1492,22 @@ public partial class MainWindow : Window
     /// lands on a black frame or a dark fade.</summary>
     private async void OnSetThumbnail(object? sender, RoutedEventArgs e)
     {
-        if (_project == null || _projectPath == null || SelectedClip is not { } clip ||
-            _engine == null || _activeVideo < 0) return;
+        if (SelectedClip is { } clip) await CaptureSceneThumbnailAsync(clip);
+    }
+
+    /// <summary>The camera button on a filled Game Setup slot — same capture, but
+    /// acting on the slot's scene rather than whatever the bin has selected.</summary>
+    private async void OnSetSlotSceneThumbnail(Clip clip) => await CaptureSceneThumbnailAsync(clip);
+
+    /// <summary>Takes the frame the editor is showing as a scene's picture, shared
+    /// by the scenes bin and the Game Setup slot rows.</summary>
+    private async Task CaptureSceneThumbnailAsync(Clip clip)
+    {
+        if (_project == null || _projectPath == null || _engine == null || _activeVideo < 0)
+        {
+            StatusText.Text = "Open a video and jog to the frame you want to use first.";
+            return;
+        }
 
         int local = _currentLocal;
         int global = CurrentGlobal;
@@ -1325,6 +1540,16 @@ public partial class MainWindow : Window
             break;
         }
         Storyboard.Refresh();
+        GameSetup.Refresh();
+
+        // A frame from outside the scene is allowed — an author may have a cleaner
+        // image elsewhere — but say so, because it is usually a slip.
+        if (global < clip.StartFrame || global > clip.EndFrame)
+        {
+            StatusText.Text = $"Picture for '{clip.Name}' set from frame {global:D6} — note that is outside " +
+                              $"the scene ({clip.StartFrame:D6}–{clip.EndFrame:D6}).";
+            return;
+        }
         StatusText.Text = $"Thumbnail for '{clip.Name}' set from frame {global:D6}.";
     }
 

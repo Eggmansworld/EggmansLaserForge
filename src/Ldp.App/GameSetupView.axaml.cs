@@ -38,6 +38,18 @@ public partial class GameSetupView : UserControl
     /// LOCATIONS section. Set by the window, which owns app-level settings.</summary>
     public Func<IReadOnlyList<(string Label, string Value, string Hint)>>? PathsProvider { get; set; }
 
+    /// <summary>Cached picture for a scene, so a filled range slot shows what it
+    /// actually is rather than a frame number. Null when none has been made yet.
+    /// The window owns decoding and caching; this panel only draws.</summary>
+    public Func<Clip, IImage?>? SceneThumbnail { get; set; }
+
+    /// <summary>Cached picture of one global frame, for the single-frame slots.</summary>
+    public Func<int, IImage?>? FrameThumbnail { get; set; }
+
+    /// <summary>The author wants this scene's thumbnail taken from the frame the
+    /// editor is currently showing.</summary>
+    public event Action<Clip>? SetSceneThumbnailRequested;
+
     /// <summary>The author wants to point the project at a different Hypseus install.</summary>
     public event Action? RelocateHypseusRequested;
 
@@ -847,7 +859,11 @@ public partial class GameSetupView : UserControl
                 _project.Slots.Ranges[info.Slot] = scene.Id;
                 return null;
             },
-            onClear: () => _project.Slots.Ranges.Remove(info.Slot));
+            onClear: () => _project.Slots.Ranges.Remove(info.Slot),
+            thumbnail: assigned != null ? SceneThumbnail?.Invoke(assigned) : null,
+            // A scene is a passage, so which frame stands for it is a choice —
+            // the same one the scenes bin offers with its own camera button.
+            onRecapture: assigned != null ? () => SetSceneThumbnailRequested?.Invoke(assigned) : null);
     }
 
     private Control StillRow(SlotCatalog.StillInfo info)
@@ -865,7 +881,10 @@ public partial class GameSetupView : UserControl
                 _project.Slots.Stills[info.Slot] = current;
                 return null;
             },
-            onClear: () => _project.Slots.Stills.Remove(info.Slot));
+            onClear: () => _project.Slots.Stills.Remove(info.Slot),
+            // A still slot IS one frame, so there is nothing to choose — the
+            // picture is simply that frame, and no camera button is offered.
+            thumbnail: frame is { } shown ? FrameThumbnail?.Invoke(shown) : null);
     }
 
     private Control TextRow(string label, string value, Action<string> commit,
@@ -986,12 +1005,19 @@ public partial class GameSetupView : UserControl
         return grid;
     }
 
+    /// <summary>Width of a slot's preview picture. Height follows the video's own
+    /// aspect, so a 16:9 game gets 36px rows and a 4:3 game 48px — only where a
+    /// slot is actually filled. Empty slots draw nothing and stay one line high,
+    /// which keeps the long list of unassigned slots as quick to scan as before.</summary>
+    private const int ThumbWidth = 64;
+
     private Control Row(string name, string hint, string valueText, bool missingRequired,
-                        int? gotoFrame, string assignLabel, Func<string?> onAssign, Action onClear)
+                        int? gotoFrame, string assignLabel, Func<string?> onAssign, Action onClear,
+                        IImage? thumbnail = null, Action? onRecapture = null)
     {
         var grid = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("190,*,86,40"),
+            ColumnDefinitions = new ColumnDefinitions($"190,{ThumbWidth + 10},*,86,40"),
             Margin = new Thickness(0, 1),
         };
 
@@ -1004,6 +1030,63 @@ public partial class GameSetupView : UserControl
         };
         if (!string.IsNullOrEmpty(hint)) ToolTip.SetTip(nameBlock, hint);
         grid.Children.Add(nameBlock);
+
+        if (thumbnail != null)
+        {
+            var picture = new Image
+            {
+                Source = thumbnail,
+                Width = ThumbWidth,
+                Stretch = Stretch.Uniform,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var frame = new Border
+            {
+                Child = picture,
+                BorderBrush = (IBrush?)this.FindResource("Divider"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 2, 10, 2),
+            };
+            if (gotoFrame is { } jump)
+            {
+                frame.Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+                frame.PointerPressed += (_, _) => GotoFrameRequested?.Invoke(jump);
+            }
+
+            if (onRecapture != null)
+            {
+                // Sits on the picture itself rather than claiming another column,
+                // so adding it costs the compact row layout nothing.
+                var camera = new Button
+                {
+                    Content = "📷",
+                    FontSize = 12,
+                    Padding = new Thickness(3, 0),
+                    MinWidth = 0,
+                    MinHeight = 0,
+                    Focusable = false,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Bottom,
+                    Margin = new Thickness(0, 0, 8, 0),
+                    Opacity = 0.9,
+                };
+                ToolTip.SetTip(camera, "Use the frame the editor is showing as this scene's picture");
+                camera.Click += (_, _) => onRecapture();
+                var stack = new Panel();
+                stack.Children.Add(frame);
+                stack.Children.Add(camera);
+                Grid.SetColumn(stack, 1);
+                grid.Children.Add(stack);
+            }
+            else
+            {
+                Grid.SetColumn(frame, 1);
+                grid.Children.Add(frame);
+            }
+        }
 
         var valueBlock = new TextBlock
         {
@@ -1021,7 +1104,7 @@ public partial class GameSetupView : UserControl
             ToolTip.SetTip(valueBlock, "Click to view this frame · right-click to copy the number");
             AddCopyMenu(valueBlock, target.ToString());
         }
-        Grid.SetColumn(valueBlock, 1);
+        Grid.SetColumn(valueBlock, 2);
         grid.Children.Add(valueBlock);
 
         var assign = new Button { Content = assignLabel, Focusable = false, FontSize = 12, Width = 80 };
@@ -1032,7 +1115,7 @@ public partial class GameSetupView : UserControl
             Rebuild();
             SlotsChanged?.Invoke();
         };
-        Grid.SetColumn(assign, 2);
+        Grid.SetColumn(assign, 3);
         grid.Children.Add(assign);
 
         var clear = new Button { Content = "✕", Focusable = false, FontSize = 12, Width = 32 };
@@ -1042,7 +1125,7 @@ public partial class GameSetupView : UserControl
             Rebuild();
             SlotsChanged?.Invoke();
         };
-        Grid.SetColumn(clear, 3);
+        Grid.SetColumn(clear, 4);
         grid.Children.Add(clear);
 
         return grid;

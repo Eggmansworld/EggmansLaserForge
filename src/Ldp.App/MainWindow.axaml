@@ -29,6 +29,7 @@
                         </MenuItem>
                         <MenuItem Header="_Tools" Padding="10,6">
                             <MenuItem Name="ConvertVideoButton" Header="🎞 Convert Video → M2V…" Click="OnConvertVideo"/>
+                            <MenuItem Name="StillImageButton" Header="🖼 Still Image → M2V…" Click="OnStillImage"/>
                             <MenuItem Name="ImportChaptersButton" Header="🕮 Import Chapters as Scenes…" IsEnabled="False"
                                       Click="OnImportChapters"/>
                         </MenuItem>
