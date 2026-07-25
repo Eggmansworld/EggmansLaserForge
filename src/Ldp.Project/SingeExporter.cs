@@ -27,11 +27,9 @@ public static class SingeExporter
         // ---- Header ----
         sb.AppendLine(gen.BuildReadme());
         sb.AppendLine();
-        sb.AppendLine("-- Do Not Remove/Alter these --");
         sb.AppendLine("OVERLAY_FULL     = 1");
         sb.AppendLine("OVERLAY_HALF     = 2");
         sb.AppendLine("OVERLAY_OVERSIZE = 3");
-        sb.AppendLine("-- Do Not Remove/Alter these --");
         sb.AppendLine();
         sb.AppendLine($"singeSetGameName(\"{project.Name}\")");
         sb.AppendLine();
@@ -44,33 +42,25 @@ public static class SingeExporter
         sb.AppendLine();
 
         // ---- Section 2: slots ----
-        sb.AppendLine("------------------------------------------------------------------------");
-        sb.AppendLine("-- 2. Starting and ending frames for the various elements of the game --");
-        sb.AppendLine("------------------------------------------------------------------------");
-        sb.AppendLine();
         foreach (SlotCatalog.RangeInfo info in SlotCatalog.Ranges)
         {
-            sb.AppendLine($"{info.LuaName} = {gen.Value(info.LuaName)}\t\t\t\t-- {info.Display}: {info.Hint}");
+            sb.AppendLine($"{info.LuaName} = {gen.Value(info.LuaName)}");
             string endName = SingeGen.RangeEndName(info);
             sb.AppendLine($"{endName} = {gen.Value(endName)}");
         }
         sb.AppendLine();
         foreach (SlotCatalog.StillInfo info in SlotCatalog.Stills)
-            sb.AppendLine($"{info.LuaName} = {gen.Value(info.LuaName)}\t\t\t\t-- {info.Display}");
+            sb.AppendLine($"{info.LuaName} = {gen.Value(info.LuaName)}");
         sb.AppendLine();
-        sb.AppendLine($"offsetMovieEnd = {gen.Value("offsetMovieEnd")}\t\t\t\t-- Last frame of the last level (Movie mode)");
+        sb.AppendLine($"offsetMovieEnd = {gen.Value("offsetMovieEnd")}");
         sb.AppendLine();
 
         // ---- Death pool ----
-        sb.AppendLine("-----------------");
-        sb.AppendLine("-- Death pool  --");
-        sb.AppendLine("-----------------");
-        sb.AppendLine();
         sb.AppendLine(gen.BuildDeathLines());
         sb.AppendLine();
 
         // ---- Levels ----
-        sb.AppendLine($"finalstage = {project.Levels.Count}\t\t\t\t-- Last stage of the story");
+        sb.AppendLine($"finalstage = {project.Levels.Count}");
         sb.AppendLine("AllowSecret = false");
         sb.AppendLine();
         sb.AppendLine(gen.BuildLevelLines());
@@ -336,14 +326,17 @@ public sealed class SingeGen
 
     public string BuildDeathLines()
     {
+        // Generated blocks carry no commentary either — the scene names behind
+        // these indexes live in the project, and the readme header points at
+        // the app for anything that needs explaining.
         var sb = new StringBuilder();
-        sb.AppendLine($"totalDeath = {_deathOrder.Count}\t\t\t\t\t-- Total number of death scenes");
+        sb.AppendLine($"totalDeath = {_deathOrder.Count}");
         sb.AppendLine();
         foreach (Guid id in _deathOrder)
         {
             Clip? scene = SceneById(id);
             if (scene == null) continue;
-            sb.AppendLine($"Death[{_deathIndex[id]}] = {{{scene.StartFrame}, {scene.EndFrame}}}\t\t\t\t-- {scene.Name}");
+            sb.AppendLine($"Death[{_deathIndex[id]}] = {{{scene.StartFrame}, {scene.EndFrame}}}");
         }
         return sb.ToString().TrimEnd('\r', '\n');
     }
@@ -358,9 +351,7 @@ public sealed class SingeGen
             sb.AppendLine($"Level[{i + 1}] = {{\"{level.Title}\", {level.StartFrame}, {introEnd}, " +
                           $"{level.SceneIds.Count}, {level.Mirror}, {level.DeathMirror}, {level.Replay}}}");
         }
-        sb.AppendLine();
-        sb.Append("-- Replay:  -1 = default (loop), 0 = no replay, 1 = one replay now");
-        return sb.ToString();
+        return sb.ToString().TrimEnd('\r', '\n');
     }
 
     public string BuildMovesFunction()
@@ -371,7 +362,7 @@ public sealed class SingeGen
         for (int levelIdx = 0; levelIdx < _project.Levels.Count; levelIdx++)
         {
             GameLevel level = _project.Levels[levelIdx];
-            sb.AppendLine($"\t{(levelIdx == 0 ? "if" : "elseif")} thisLevel == {levelIdx + 1} then\t\t-- {level.Title}");
+            sb.AppendLine($"\t{(levelIdx == 0 ? "if" : "elseif")} thisLevel == {levelIdx + 1} then");
 
             // The `end` below closes the scene if-chain, so it may only be
             // written when a scene actually opened one. A level with no usable

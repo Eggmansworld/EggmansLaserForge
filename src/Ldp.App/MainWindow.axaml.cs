@@ -102,6 +102,8 @@ public partial class MainWindow : Window
 
         GameSetup.SlotsChanged += () => { MarkDirty(); SaveProject(); };
         GameSetup.LevelsChanged += OnLevelsChanged;
+        GameSetup.PathsProvider = CurrentPaths;
+        GameSetup.RelocateHypseusRequested += OnRelocateHypseus;
         GameSetup.GotoFrameRequested += async frame =>
         {
             ShowEditorPane();
@@ -162,7 +164,62 @@ public partial class MainWindow : Window
     {
         LogPanel.IsVisible = !LogPanel.IsVisible;
         LogToggle.Content = LogPanel.IsVisible ? "Log ▼" : "Log ▲";
-        if (LogPanel.IsVisible) ScrollLogToEnd();
+        if (!LogPanel.IsVisible) return;
+
+        // Opening the log is when someone is trying to work out what the app is
+        // actually doing, so the paths it is doing it to go in every time.
+        foreach ((string label, string value, string _) in CurrentPaths())
+            AppendLog($"{label}: {(value.Length > 0 ? value : "(not set)")}");
+        ScrollLogToEnd();
+    }
+
+    /// <summary>
+    /// Every location the app reads or writes. The Hypseus install is picked
+    /// once in the New Project wizard and was invisible after that, which left
+    /// no way to check it or notice it had gone stale.
+    /// </summary>
+    private IReadOnlyList<(string Label, string Value, string Hint)> CurrentPaths()
+    {
+        string gameFolder = _projectPath != null ? Path.GetDirectoryName(_projectPath)! : "";
+        return
+        [
+            ("Hypseus install", _project?.HypseusRoot ?? "",
+                "The folder holding hypseus.exe. Chosen when the project was created."),
+            ("Game folder", gameFolder,
+                "Where the .singe script and frame file are written, under the install's singe/ folder."),
+            ("Project file", _projectPath ?? "", "This project's .ldproj."),
+            ("Script template", FindSingeTemplate() ?? "(built-in default)",
+                "A template.singe next to the project overrides the one built into the app."),
+            ("FFmpeg", _settings.FfmpegPath ?? "",
+                "Used for video conversion only; set the first time you convert."),
+        ];
+    }
+
+    /// <summary>Re-points the project at a different Hypseus install, for when
+    /// it has been moved or reinstalled since the project was created.</summary>
+    private async void OnRelocateHypseus()
+    {
+        if (_project == null) return;
+        IReadOnlyList<IStorageFolder> picked = await StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Locate your Hypseus Singe folder (the one holding hypseus.exe)",
+            AllowMultiple = false,
+        });
+        if (picked.Count == 0 || picked[0].TryGetLocalPath() is not { } root) return;
+
+        if (!File.Exists(Path.Combine(root, "hypseus.exe")))
+        {
+            StatusText.Text = $"'{root}' has no hypseus.exe — pick the folder that contains it.";
+            return;
+        }
+
+        _project.HypseusRoot = root;
+        _settings.HypseusRoot = root;
+        _settings.Save();
+        MarkDirty();
+        SaveProject();
+        UpdateProjectUi();
+        StatusText.Text = $"Hypseus install is now {root} (Ctrl+Z to undo).";
     }
 
     private void ScrollLogToEnd() => Dispatcher.UIThread.Post(() => LogScroll.ScrollToEnd());

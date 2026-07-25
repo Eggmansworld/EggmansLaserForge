@@ -926,6 +926,41 @@ public static class ProjectTest
               SingeExporter.Export(replayProject).Warnings.Any(w => w.Contains("death behaviour")));
         replayLevel.Replay = GameLevel.DefaultReplay;
 
+        // The generated blocks must be as comment-free as the template — the
+        // deaths and levels blocks are emitted by code, not filled from it.
+        var cleanProject = new LdpProject { Framework = GameFramework.Structure };
+        var cleanDeath = new Clip { Name = "Death 1", StartFrame = 9000, EndFrame = 9100 };
+        var cleanScene = new Clip { Name = "S1", StartFrame = 100, EndFrame = 900 };
+        cleanScene.Interactions.Add(new InteractionMarker { Frame = 200, Input = InputKind.Up, DeathClipId = cleanDeath.Id });
+        cleanProject.Clips.AddRange([cleanDeath, cleanScene]);
+        cleanProject.DeathPool.Add(cleanDeath.Id);
+        cleanProject.AssignToLevel(cleanProject.AddLevel("ACT"), [cleanScene.Id]);
+        string cleanScript = SingeExporter.Export(cleanProject).Script;
+
+        Check("script: totalDeath carries no comment",
+              Rx.IsMatch(cleanScript, @"(?m)^totalDeath = \d+\s*$"));
+        Check("script: Death[] lines carry no comments",
+              Rx.Matches(cleanScript, @"(?m)^Death\[\d+\] = \{\d+, \d+\}\s*$").Count == 1 &&
+              !Rx.IsMatch(cleanScript, @"Death\[\d+\].*--"));
+        Check("script: the Replay legend comment is gone",
+              !cleanScript.Contains("-- Replay:"));
+        Check("script: Level[] lines carry no comments",
+              !Rx.IsMatch(cleanScript, @"Level\[\d+\].*--"));
+        Check("script: setupMoves level branches carry no comments",
+              !Rx.IsMatch(cleanScript, @"thisLevel == \d+ then.*--"));
+
+        // Everything outside the readme header should be bare Lua, on both the
+        // template path and the from-scratch fallback.
+        static int CommentsOutsideReadme(string script) => Rx
+            .Replace(script, @"(?s)--\[\[.*?\]\]--", "")
+            .Split('\n')
+            .Count(l => l.Contains("--", StringComparison.Ordinal) &&
+                        !l.Contains("@APP", StringComparison.Ordinal));
+        Check("script: from-scratch export has no commentary",
+              CommentsOutsideReadme(cleanScript) == 0);
+        Check("script: template export has no commentary",
+              CommentsOutsideReadme(SingeTemplate.Apply(cleanProject, SingeTemplate.DefaultTemplate).Script) == 0);
+
         // The template carries no commentary beyond the markers the exporter
         // needs and the --@APP flags that mark author-supplied values.
         string bareTemplate = SingeTemplate.DefaultTemplate;

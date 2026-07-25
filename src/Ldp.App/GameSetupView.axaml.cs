@@ -34,6 +34,13 @@ public partial class GameSetupView : UserControl
     /// chips are now stale, and the project needs saving.</summary>
     public event Action? LevelsChanged;
 
+    /// <summary>Supplies the paths the app is working with, for the FILE
+    /// LOCATIONS section. Set by the window, which owns app-level settings.</summary>
+    public Func<IReadOnlyList<(string Label, string Value, string Hint)>>? PathsProvider { get; set; }
+
+    /// <summary>The author wants to point the project at a different Hypseus install.</summary>
+    public event Action? RelocateHypseusRequested;
+
     public GameSetupView()
     {
         InitializeComponent();
@@ -88,6 +95,9 @@ public partial class GameSetupView : UserControl
                 ? "— add a video —"
                 : $"{_project.Videos[0].Fps:F3} (auto-detected; all videos must match)"));
 
+        AddHeader("FILE LOCATIONS");
+        SlotsPanel.Children.Add(PathsBlock());
+
         AddHeader("ATTRACT & TITLE");
         foreach (SlotCatalog.RangeInfo info in SlotCatalog.Ranges.Where(r =>
                      r.Slot is RangeSlot.Title or RangeSlot.Intro01 or RangeSlot.Intro02
@@ -126,6 +136,66 @@ public partial class GameSetupView : UserControl
 
         UpdateSummary();
         Dispatcher.UIThread.Post(() => SetupScroll.Offset = offset, DispatcherPriority.Loaded);
+    }
+
+    /// <summary>
+    /// Where the app is reading and writing. The Hypseus install in particular
+    /// is chosen once in the New Project wizard and then never shown again,
+    /// which leaves an author with no way to check it — or to notice it has
+    /// gone stale after moving the install.
+    /// </summary>
+    private Control PathsBlock()
+    {
+        var panel = new StackPanel { Spacing = 2 };
+        IReadOnlyList<(string Label, string Value, string Hint)> paths =
+            PathsProvider?.Invoke() ?? [];
+        if (paths.Count == 0)
+        {
+            panel.Children.Add(Faint("No paths to show yet."));
+            return panel;
+        }
+
+        foreach ((string label, string value, string hint) in paths)
+        {
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("190,*"), Margin = new Thickness(0, 1) };
+            TextBlock name = Faint(label);
+            name.FontSize = 13;
+            name.Foreground = (IBrush?)this.FindResource("FgPrimary");
+            if (hint.Length > 0) ToolTip.SetTip(name, hint);
+            row.Children.Add(name);
+
+            bool missing = value.Length == 0;
+            var path = new SelectableTextBlock
+            {
+                Text = missing ? "— not set —" : value,
+                Foreground = (IBrush?)this.FindResource(missing ? "PortDeath" : "FgMuted"),
+                FontFamily = new FontFamily("Consolas,monospace"),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap,
+            };
+            if (!missing)
+            {
+                ToolTip.SetTip(path, "Select to copy, or right-click → Copy");
+                AddCopyMenu(path, value);
+            }
+            Grid.SetColumn(path, 1);
+            row.Children.Add(path);
+            panel.Children.Add(row);
+        }
+
+        var relocate = new Button
+        {
+            Content = "Change Hypseus folder…",
+            Focusable = false,
+            FontSize = 12,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Margin = new Thickness(0, 6, 0, 0),
+        };
+        ToolTip.SetTip(relocate, "Point this project at a different Hypseus Singe install (after moving or reinstalling it).");
+        relocate.Click += (_, _) => RelocateHypseusRequested?.Invoke();
+        panel.Children.Add(relocate);
+        return panel;
     }
 
     // ---------- Levels ----------
@@ -276,7 +346,18 @@ public partial class GameSetupView : UserControl
         info.Children.Add(FrameLink($"starts {level.StartFrame:D6}", level.StartFrame));
         if (level.HasIntro) info.Children.Add(FrameLink($"intro ends {level.IntroEndFrame:D6}", level.IntroEndFrame));
         info.Children.Add(Faint($"{sceneCount} scene{(sceneCount == 1 ? "" : "s")}"));
-        info.Children.Add(Faint(ReplayCatalog.Display(level.Replay)));
+        // Visible without expanding: a non-default death behaviour rewrites the
+        // play order, so it must not hide behind "▸ more".
+        if (level.Replay == GameLevel.DefaultReplay)
+        {
+            info.Children.Add(Faint(ReplayCatalog.Display(level.Replay)));
+        }
+        else
+        {
+            TextBlock odd = Faint($"⚠ {ReplayCatalog.Display(level.Replay)} — open ▸ more to reset");
+            odd.Foreground = (IBrush?)this.FindResource("PortDeath");
+            info.Children.Add(odd);
+        }
         var more = new Button
         {
             Content = expanded ? "▾ less" : "▸ more",
@@ -318,28 +399,33 @@ public partial class GameSetupView : UserControl
             Margin = new Thickness(2, 4, 0, 4),
         };
 
-        var replayRow = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
-        replayRow.Children.Add(Faint("On death"));
-        var replay = new ComboBox
+        // Death behaviour is deliberately NOT editable here. Anything but the
+        // -1 loop default feeds the framework's LvlOrder requeue arithmetic and
+        // reorders the game, which is far outside what this app is for — so the
+        // only thing offered is a way to clear a value that shouldn't be there
+        // (imported from a hand-written script, or left by an older build).
+        var deathRow = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*,Auto") };
+        deathRow.Children.Add(Faint("On death"));
+        bool defaultReplay = level.Replay == GameLevel.DefaultReplay;
+        var deathValue = new TextBlock
         {
-            ItemsSource = ReplayCatalog.Entries,
-            SelectedItem = Array.Find(ReplayCatalog.Entries, en => en.Value == level.Replay),
-            FontSize = 12,
-            MinWidth = 250,
+            Text = ReplayCatalog.Display(level.Replay) + (defaultReplay ? "" : "  ⚠ not the default"),
+            Foreground = (IBrush?)this.FindResource(defaultReplay ? "FgFaint" : "PortDeath"),
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
         };
-        // DropDownClosed, not SelectionChanged: the latter also fires while the
-        // combo materialises its items, which is one way a level can quietly
-        // end up on something other than the loop-until-passed default. This
-        // only fires when the author actually opened the list and chose.
-        replay.DropDownClosed += (_, _) =>
+        Grid.SetColumn(deathValue, 1);
+        deathRow.Children.Add(deathValue);
+        if (!defaultReplay)
         {
-            if (replay.SelectedItem is not ReplayCatalog.Entry entry || entry.Value == level.Replay) return;
-            level.Replay = entry.Value;
-            Commit();
-        };
-        Grid.SetColumn(replay, 1);
-        replayRow.Children.Add(replay);
-        panel.Children.Add(replayRow);
+            var reset = new Button { Content = "Reset to default", Focusable = false, FontSize = 11 };
+            ToolTip.SetTip(reset, "Put this level back on \"replay until passed\", the behaviour a game should ship with.");
+            reset.Click += (_, _) => { level.Replay = GameLevel.DefaultReplay; Commit(); };
+            Grid.SetColumn(reset, 2);
+            deathRow.Children.Add(reset);
+        }
+        panel.Children.Add(deathRow);
 
         panel.Children.Add(NumberRow("Intro starts at frame", level.StartFrame, v =>
         {
