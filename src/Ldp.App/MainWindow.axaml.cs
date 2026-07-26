@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -83,6 +84,7 @@ public partial class MainWindow : Window
         VideoList.ItemsSource = _videoItems;
         ClipList.ItemsSource = _clipItems;
         LogList.ItemsSource = _logItems;
+        BuildSceneViewControls();
 
         // Every status message is captured into the slide-open log history.
         StatusText.PropertyChanged += (_, e) =>
@@ -452,6 +454,7 @@ public partial class MainWindow : Window
         UpdateMarkUi();
         _videoItems.Clear();
         _clipItems.Clear();
+        _clipItemCache.Clear();
         // Previews belong to the project that was open; another one reuses the
         // same frame numbers for entirely different pictures.
         foreach ((_, Bitmap image) in _thumbCache.Values) image.Dispose();
@@ -618,6 +621,7 @@ public partial class MainWindow : Window
         RenameVideoButton.IsEnabled = false;
         ImportChaptersButton.IsEnabled = hasProject;
         MarkInButton.IsEnabled = MarkOutButton.IsEnabled = hasProject;
+        EmptyState.IsVisible = !hasProject;
 
         _videoItems.Clear();
         _clipItems.Clear();
@@ -626,9 +630,7 @@ public partial class MainWindow : Window
         for (int i = 0; i < _project.Videos.Count; i++)
             _videoItems.Add(new VideoItem { Index = i, Source = _project.Videos[i] });
 
-        foreach (Clip clip in _project.Clips)
-            _clipItems.Add(MakeClipItem(clip));
-        RefreshSceneRows(); // paint the L·S badges
+        RefreshSceneRows(); // fills the list through the filter and paints L·S badges
 
         Storyboard.SetProject(_project, LookupClip);
         GameSetup.SetProject(_project,
@@ -887,15 +889,33 @@ public partial class MainWindow : Window
         {
             List<string>? warnings = await ExportGameAsync();
             if (warnings == null) return;
-            StatusText.Text = $"Exported {Path.GetFileName(paths.ScriptPath)} + frame file to the game folder" +
-                              (warnings.Count > 0
-                                  ? $" — ⚠ {warnings.Count} warnings: {string.Join(" · ", warnings.Take(3))}"
-                                  : " — no warnings");
+            ReportExportWarnings(warnings,
+                $"Exported {Path.GetFileName(paths.ScriptPath)} + frame file to the game folder");
         }
         catch (Exception ex)
         {
             StatusText.Text = "Export failed: " + ex.Message;
         }
+    }
+
+    /// <summary>
+    /// Export warnings are a to-do list, not a status message. Crammed into the
+    /// one-line status bar they were truncated at three and then ellipsized, so
+    /// the useful part — which scenes — never reached the author. Each one gets
+    /// its own log line and the drawer opens itself when there are any.
+    /// </summary>
+    private void ReportExportWarnings(IReadOnlyList<string> warnings, string headline)
+    {
+        if (warnings.Count == 0)
+        {
+            StatusText.Text = headline + " — no warnings";
+            return;
+        }
+
+        StatusText.Text = $"{headline} — ⚠ {warnings.Count} thing(s) to look at, listed in the log below";
+        foreach (string warning in warnings) AppendLog("⚠ " + warning);
+        if (!LogPanel.IsVisible) OnToggleLog(this, new RoutedEventArgs());
+        Dispatcher.UIThread.Post(LogScroll.ScrollToEnd, DispatcherPriority.Background);
     }
 
     private async void OnTestInHypseus(object? sender, RoutedEventArgs e)
@@ -1290,7 +1310,7 @@ public partial class MainWindow : Window
                 EndFrame = video.GlobalBase + video.PictureCount - 1,
             };
             _project.Clips.Add(clip);
-            _clipItems.Add(MakeClipItem(clip));
+            RefreshSceneRows();
             RevealScenes([clip]);
 
             if (produced.Range is { } range)
@@ -1529,12 +1549,7 @@ public partial class MainWindow : Window
         MarkDirty();
         SaveProject();
 
-        int i = ClipList.SelectedIndex;
-        if (i >= 0 && i < _clipItems.Count)
-        {
-            _clipItems[i] = MakeClipItem(clip);
-            ClipList.SelectedIndex = i;
-        }
+        InvalidateSceneItem(clip.Id);
         RefreshSceneRows();
         Storyboard.Refresh();
         GameSetup.Refresh();
@@ -1592,14 +1607,8 @@ public partial class MainWindow : Window
             _decodeGate.Release();
         }
 
-        for (int i = 0; i < _clipItems.Count; i++)
-        {
-            if (_clipItems[i].Clip.Id != clip.Id) continue;
-            bool wasSelected = ClipList.SelectedIndex == i;
-            _clipItems[i] = MakeClipItem(clip);
-            if (wasSelected) ClipList.SelectedIndex = i;
-            break;
-        }
+        InvalidateSceneItem(clip.Id);
+        RefreshSceneRows();
         Storyboard.Refresh();
         GameSetup.Refresh();
 
@@ -1681,7 +1690,7 @@ public partial class MainWindow : Window
         if (fresh.Count == 0) return 0;
 
         _project.Clips.AddRange(fresh);
-        foreach (Clip clip in fresh) _clipItems.Add(MakeClipItem(clip));
+        RefreshSceneRows();
         MarkDirty();
         SaveProject();
         RevealScenes(fresh);
@@ -2330,7 +2339,8 @@ public partial class MainWindow : Window
         }
         catch (Exception) { /* clip without thumbnail is still a clip */ }
 
-        _clipItems.Add(item);
+        _clipItemCache[clip.Id] = item;
+        RefreshSceneRows();
         ClipForm.IsVisible = false;
         _markIn = _markOut = null;
         UpdateMarkUi();
@@ -2365,8 +2375,10 @@ public partial class MainWindow : Window
         bool hasSelection = ClipList.SelectedItem is ClipItem;
         PlayClipButton.IsEnabled = GotoClipButton.IsEnabled =
             DeleteClipButton.IsEnabled = ToStoryboardButton.IsEnabled =
-            MoveClipUpButton.IsEnabled = MoveClipDownButton.IsEnabled =
             RenameClipButton.IsEnabled = ThumbClipButton.IsEnabled = hasSelection;
+        // Hand reordering only means anything while the list shows project order.
+        MoveClipUpButton.IsEnabled = MoveClipDownButton.IsEnabled =
+            hasSelection && _sceneSort == SceneSort.Manual;
         RefreshInteractions();
         RepaintMarkerStrip();
     }
@@ -2709,22 +2721,180 @@ public partial class MainWindow : Window
     /// Reconciles the SCENES list with the project's clips — pasting a copied
     /// scene into a level creates new ones — and repaints every L·S badge.
     /// </summary>
+    // ---------- Scenes list view (filter + sort) ----------
+
+    /// <summary>What the scenes list is ordered by. This is a VIEW concern only:
+    /// level membership and drag order come from the project's own clip order via
+    /// <see cref="SelectedScenesInOrder"/>, so sorting here can never change what
+    /// the exported script plays.</summary>
+    private enum SceneSort { Manual, Name, StartFrame, Level, Moves }
+
+    /// <summary>Quick filters for the states that actually cause export problems,
+    /// so "28 scenes belong to no level" stops being a sentence and becomes a list.</summary>
+    private enum SceneFilter { All, NoLevel, NoMoves, Deaths }
+
+    private SceneSort _sceneSort = SceneSort.Manual;
+    private SceneFilter _sceneFilter = SceneFilter.All;
+
+    /// <summary>Row objects by clip, so re-filtering reuses them instead of
+    /// re-reading every thumbnail off disk.</summary>
+    private readonly Dictionary<Guid, ClipItem> _clipItemCache = [];
+
+    private ClipItem ItemFor(Clip clip)
+    {
+        if (_clipItemCache.TryGetValue(clip.Id, out ClipItem? cached) && cached.Clip == clip)
+            return cached;
+        ClipItem made = MakeClipItem(clip);
+        _clipItemCache[clip.Id] = made;
+        return made;
+    }
+
+    /// <summary>Drops a cached row so its thumbnail or text is rebuilt next time.</summary>
+    private void InvalidateSceneItem(Guid clipId) => _clipItemCache.Remove(clipId);
+
+    private void OnSceneFilterChanged(object? sender, TextChangedEventArgs e) => RefreshSceneRows();
+
+    private void OnSceneViewChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (SceneSortCombo.SelectedItem is SortChoice choice) _sceneSort = choice.Value;
+        RefreshSceneRows();
+    }
+
+    private sealed record SortChoice(SceneSort Value, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private void BuildSceneViewControls()
+    {
+        SceneSortCombo.ItemsSource = new List<SortChoice>
+        {
+            new(SceneSort.Manual, "Project order"),
+            new(SceneSort.Name, "Name"),
+            new(SceneSort.StartFrame, "Start frame"),
+            new(SceneSort.Level, "Level · scene"),
+            new(SceneSort.Moves, "Move count"),
+        };
+        SceneSortCombo.SelectedIndex = 0;
+
+        foreach ((SceneFilter filter, string label, string tip) in ((SceneFilter, string, string)[])
+        [
+            (SceneFilter.All, "All", "Every scene in the project"),
+            (SceneFilter.NoLevel, "No level", "Scenes no level plays — these are silently left out of the export"),
+            (SceneFilter.NoMoves, "No moves", "Scenes with no interactions — a level scene with none crashes the framework"),
+            (SceneFilter.Deaths, "Deaths", "Scenes used as a death for some move"),
+        ])
+        {
+            var chip = new ToggleButton
+            {
+                Content = label,
+                Tag = filter,
+                FontSize = 11,
+                Padding = new Thickness(7, 1),
+                Margin = new Thickness(0, 0, 4, 0),
+                MinHeight = 0,
+                Focusable = false,
+                IsChecked = filter == SceneFilter.All,
+            };
+            ToolTip.SetTip(chip, tip);
+            // Exactly one chip is active: they are alternative views of the same
+            // list, not stacking conditions. Clicking the active one re-checks it
+            // rather than leaving the list with no filter selected at all.
+            chip.Click += (_, _) =>
+            {
+                _sceneFilter = (SceneFilter)chip.Tag!;
+                foreach (Control other in SceneChips.Children)
+                    if (other is ToggleButton t) t.IsChecked = ReferenceEquals(t, chip);
+                RefreshSceneRows();
+            };
+            SceneChips.Children.Add(chip);
+        }
+    }
+
+    /// <summary>Clips currently passing the filter, in the chosen view order.</summary>
+    private List<Clip> VisibleScenes()
+    {
+        if (_project == null) return [];
+
+        HashSet<Guid> deaths = [];
+        foreach (Clip c in _project.Clips)
+            foreach (InteractionMarker m in c.Interactions)
+                if (m.DeathClipId is { } id) deaths.Add(id);
+
+        string text = (SceneFilterBox.Text ?? "").Trim();
+        IEnumerable<Clip> clips = _project.Clips;
+
+        clips = _sceneFilter switch
+        {
+            SceneFilter.NoLevel => clips.Where(c => _project.LevelOf(c.Id) == null),
+            SceneFilter.NoMoves => clips.Where(c => c.Interactions.Count == 0),
+            SceneFilter.Deaths => clips.Where(c => deaths.Contains(c.Id)),
+            _ => clips,
+        };
+
+        if (text.Length > 0)
+            clips = clips.Where(c =>
+                c.Name.Contains(text, StringComparison.OrdinalIgnoreCase) ||
+                c.StartFrame.ToString().Contains(text) ||
+                c.EndFrame.ToString().Contains(text));
+
+        Dictionary<Guid, (int Level, int Scene)> positions = _project.LevelPositions();
+        return (_sceneSort switch
+        {
+            SceneSort.Name => clips.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase),
+            SceneSort.StartFrame => clips.OrderBy(c => c.StartFrame),
+            // Unassigned scenes sort last rather than first: they are the ones
+            // being hunted for, and a stable place to find them beats the top.
+            SceneSort.Level => clips.OrderBy(c => positions.TryGetValue(c.Id, out (int Level, int Scene) at)
+                                                 ? at.Level : int.MaxValue)
+                                    .ThenBy(c => positions.TryGetValue(c.Id, out (int Level, int Scene) at)
+                                                 ? at.Scene : 0),
+            SceneSort.Moves => clips.OrderByDescending(c => c.Interactions.Count),
+            _ => clips,
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Reconciles the SCENES list with the project through the current filter and
+    /// sort, reusing row objects so nothing is re-read from disk, and repaints
+    /// every L·S badge.
+    /// </summary>
     private void RefreshSceneRows()
     {
         if (_project == null) return;
 
-        foreach (Clip clip in _project.Clips)
-            if (_clipItems.All(i => i.Clip.Id != clip.Id))
-                _clipItems.Add(MakeClipItem(clip));
-        for (int i = _clipItems.Count - 1; i >= 0; i--)
-            if (!_project.Clips.Contains(_clipItems[i].Clip))
-                _clipItems.RemoveAt(i);
+        var keepSelected = new HashSet<Guid>(
+            (ClipList.SelectedItems ?? Array.Empty<object>()).OfType<ClipItem>().Select(i => i.Clip.Id));
+
+        // Cached rows for clips that no longer exist would leak across deletes.
+        var live = new HashSet<Guid>(_project.Clips.Select(c => c.Id));
+        foreach (Guid gone in _clipItemCache.Keys.Where(k => !live.Contains(k)).ToList())
+            _clipItemCache.Remove(gone);
+
+        List<Clip> visible = VisibleScenes();
+        _clipItems.Clear();
+        foreach (Clip clip in visible) _clipItems.Add(ItemFor(clip));
 
         Dictionary<Guid, (int Level, int Scene)> positions = _project.LevelPositions();
         foreach (ClipItem item in _clipItems)
             item.LevelBadge = positions.TryGetValue(item.Clip.Id, out (int Level, int Scene) at)
                 ? $"L{at.Level}·S{at.Scene}"
                 : "";
+
+        if (keepSelected.Count > 0)
+            foreach (ClipItem item in _clipItems)
+                if (keepSelected.Contains(item.Clip.Id))
+                    ClipList.SelectedItems?.Add(item);
+
+        int total = _project.Clips.Count;
+        SceneCountText.Text = visible.Count == total
+            ? $"{total} scene{(total == 1 ? "" : "s")}"
+            : $"{visible.Count} of {total} shown";
+
+        // Reordering by hand only makes sense while the list is in project order.
+        bool manual = _sceneSort == SceneSort.Manual;
+        MoveClipUpButton.IsEnabled = MoveClipDownButton.IsEnabled =
+            manual && ClipList.SelectedItem is ClipItem;
     }
 
     // ---------- Drag scenes from bin to storyboard ----------

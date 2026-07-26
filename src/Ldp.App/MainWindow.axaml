@@ -160,7 +160,14 @@
             </StackPanel>
         </Border>
 
-        <Grid ColumnDefinitions="235,*,400">
+        <!-- Side panels are user-sizable: their widths were arbitrary numbers,
+             and how much room names and thumbnails need is the author's call. -->
+        <Grid ColumnDefinitions="235,5,*,5,400">
+
+            <GridSplitter Grid.Column="1" Background="{DynamicResource BgWindow}"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
+            <GridSplitter Grid.Column="3" Background="{DynamicResource BgWindow}"
+                          ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
 
             <!-- Video list -->
             <Border Grid.Column="0" Background="{DynamicResource BgPanel}" Padding="8">
@@ -196,9 +203,29 @@
             </Border>
 
             <!-- Center: editor OR storyboard -->
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="2">
                 <Grid Name="EditorPane" Background="Black">
                     <Image Name="VideoImage" Stretch="Uniform"/>
+
+                    <!-- With no project open every pane is blank, which tells a
+                         first-time author nothing about what to do next. -->
+                    <Border Name="EmptyState" Background="{DynamicResource BgWindow}"
+                            VerticalAlignment="Center" HorizontalAlignment="Center"
+                            CornerRadius="8" Padding="28,24" MaxWidth="520"
+                            BorderBrush="{DynamicResource Divider}" BorderThickness="1">
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="No project open" FontSize="19" FontWeight="Bold"
+                                       Foreground="{DynamicResource FgPrimary}"/>
+                            <TextBlock TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource FgMuted}"
+                                       Text="A project holds your game's videos, the scenes you mark in them, the moves the player makes, and everything the Singe script needs. It lives inside your Hypseus install, next to the game it builds."/>
+                            <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                                <Button Content="＋ New Project…" Click="OnNewProject"/>
+                                <Button Content="Open Project…" Click="OnOpenProject"/>
+                            </StackPanel>
+                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource FgFaint}"
+                                       Text="New here? The README walks through a whole game start to finish — Help ▸ About has the link."/>
+                        </StackPanel>
+                    </Border>
                     <Border Name="ScanOverlay" Background="{DynamicResource BgOverlay}" IsVisible="False">
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="12" Width="420">
                             <TextBlock Name="ScanText" Text="Indexing video…" HorizontalAlignment="Center"
@@ -245,10 +272,26 @@
             </Grid>
 
             <!-- Clip bin + interactions -->
-            <Border Grid.Column="2" Background="{DynamicResource BgPanel}" Padding="8">
+            <Border Grid.Column="4" Background="{DynamicResource BgPanel}" Padding="8">
                 <Grid RowDefinitions="Auto,3*,Auto,Auto,Auto,2*">
-                    <TextBlock Grid.Row="0" Text="SCENES" Foreground="{DynamicResource FgFaint}" FontSize="11"
-                               FontWeight="Bold" Margin="4,0,0,6"/>
+                    <!-- Authoring is not linear: scenes get made out of order all
+                         day, so the list needs finding, not just scrolling. -->
+                    <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,6">
+                        <DockPanel>
+                            <TextBlock Text="SCENES" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                                       FontWeight="Bold" Margin="4,0,0,0"/>
+                            <TextBlock Name="SceneCountText" HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource FgFaint}" FontSize="11" Text=""/>
+                        </DockPanel>
+                        <DockPanel>
+                            <ComboBox Name="SceneSortCombo" DockPanel.Dock="Right" Width="124" FontSize="12"
+                                      SelectionChanged="OnSceneViewChanged"
+                                      ToolTip.Tip="Sorting changes what you see, never the play order the script uses"/>
+                            <TextBox Name="SceneFilterBox" Margin="0,0,6,0" FontSize="12"
+                                     PlaceholderText="Find a scene…" TextChanged="OnSceneFilterChanged"/>
+                        </DockPanel>
+                        <WrapPanel Name="SceneChips" Orientation="Horizontal"/>
+                    </StackPanel>
                     <ListBox Grid.Row="1" Name="ClipList" Background="Transparent" SelectionChanged="OnClipSelected"
                              SelectionMode="Multiple" Focusable="False" DoubleTapped="OnGotoClip">
                         <ListBox.ItemTemplate>
