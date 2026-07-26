@@ -101,7 +101,7 @@
                     <!-- Keyboard hints: left (static help) -->
                     <TextBlock Grid.Column="0" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                                Foreground="{DynamicResource FgFaint}" FontSize="12" TextWrapping="Wrap" MaxWidth="330"
-                               Text="←/→ ±1 · Shift ±10 · Ctrl ±100 · Space play · I/O mark · Enter new scene · U/D/L/R/1/2/S add move · E skip-end · Ctrl+Z undo"/>
+                               Text="←/→ ±1 · Shift ±10 · Ctrl ±100 · Space play · I/O mark · Enter new scene · W A S D move · Q/E buttons · Z skip · C skip-end · G go to · Ctrl+Z undo"/>
 
                     <!-- Everything the mouse lives on, in one central cluster -->
                     <StackPanel Grid.Column="1" Orientation="Horizontal">

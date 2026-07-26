@@ -41,6 +41,21 @@
         <Setter Property="AllowAutoHide" Value="False"/>
     </Style>
 
+    <!-- A ListBox's scroll viewer lives inside its own template and takes this
+         from the attached property on the ListBox, so the plain ScrollViewer
+         selector above never reaches it. Without these, only scroll viewers
+         written directly in XAML (Game Setup) stayed put while every list kept
+         Fluent's shrink-until-hovered bar. -->
+    <Style Selector="ListBox">
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False"/>
+    </Style>
+    <Style Selector="ItemsControl">
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False"/>
+    </Style>
+    <Style Selector="TextBox">
+        <Setter Property="ScrollViewer.AllowAutoHide" Value="False"/>
+    </Style>
+
     <Style Selector="ScrollBar:vertical">
         <Setter Property="Width" Value="12"/>
         <Setter Property="MinWidth" Value="12"/>

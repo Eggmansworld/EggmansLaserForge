@@ -168,5 +168,76 @@ public static class StillImageTest
         Check("still: jpg is an image", StillImage.IsImage("a.jpg"));
         Check("still: m2v is not an image", !StillImage.IsImage("a.m2v"));
         Check("still: mkv is not an image", !StillImage.IsImage("a.mkv"));
+
+        NaturalOrderChecks(Check);
+        ChapterNameChecks(Check);
+    }
+
+    /// <summary>
+    /// Scene names sort the way a person reads them. Plain text ordering put
+    /// "Chapter 10" between 1 and 2, which made a 36-chapter list unusable.
+    /// </summary>
+    private static void NaturalOrderChecks(Action<string, bool> Check)
+    {
+        string[] chapters = ["Chapter 10", "Chapter 2", "Chapter 1", "Chapter 21", "Chapter 3"];
+        Check("natural: chapters sort numerically",
+              chapters.OrderBy(s => s, NaturalOrder.Instance).SequenceEqual(
+                  ["Chapter 1", "Chapter 2", "Chapter 3", "Chapter 10", "Chapter 21"]));
+
+        // The habit that prompted this is not unique to chapters.
+        string[] extras = ["extra 12", "extra 2", "extra 1", "death 10", "death 9"];
+        Check("natural: any name with a number sorts numerically",
+              extras.OrderBy(s => s, NaturalOrder.Instance).SequenceEqual(
+                  ["death 9", "death 10", "extra 1", "extra 2", "extra 12"]));
+
+        Check("natural: padded and unpadded interleave, not split",
+              new[] { "Chapter 03", "Chapter 1", "Chapter 002" }
+                  .OrderBy(s => s, NaturalOrder.Instance)
+                  .SequenceEqual(["Chapter 1", "Chapter 002", "Chapter 03"]));
+
+        Check("natural: case is ignored like the old comparer",
+              NaturalOrder.Instance.Compare("alpha", "ALPHA") == 0);
+        Check("natural: a prefix sorts before the longer name",
+              NaturalOrder.Instance.Compare("extra", "extra 1") < 0);
+        Check("natural: pure text still compares normally",
+              NaturalOrder.Instance.Compare("apple", "banana") < 0);
+        Check("natural: nulls do not throw", NaturalOrder.Instance.Compare(null, "a") < 0);
+        Check("natural: equal strings compare equal",
+              NaturalOrder.Instance.Compare("Chapter 07", "Chapter 07") == 0);
+        Check("natural: trailing numbers of differing width",
+              NaturalOrder.Instance.Compare("scene 9", "scene 100") < 0);
+    }
+
+    /// <summary>Imported chapter names are padded so they read in order
+    /// everywhere, not only where a natural sort is applied.</summary>
+    private static void ChapterNameChecks(Action<string, bool> Check)
+    {
+        Check("chapters: two digits is the floor", ChapterImport.NumberWidth(9) == 2);
+        Check("chapters: 36 chapters pad to two", ChapterImport.NumberWidth(36) == 2);
+        Check("chapters: 100 chapters pad to three", ChapterImport.NumberWidth(100) == 3);
+        Check("chapters: name is zero padded", ChapterImport.SceneName(7, 36) == "Chapter 07 (imported)");
+        Check("chapters: wide sets pad wider", ChapterImport.SceneName(7, 120) == "Chapter 007 (imported)");
+        Check("chapters: a two-digit number is unchanged",
+              ChapterImport.SceneName(36, 36) == "Chapter 36 (imported)");
+
+        // The repair path for projects made before padding existed.
+        var clips = new List<Clip>
+        {
+            new() { Name = "Chapter 1 (imported)" },
+            new() { Name = "Chapter 10 (imported)" },
+            new() { Name = "Chapter 2 (imported)" },
+            new() { Name = "my own scene name" },
+            new() { Name = "Chapter 5 - the good bit" },
+        };
+        int changed = ChapterImport.RenumberImported(clips);
+        Check("chapters: only unpadded generated names are rewritten", changed == 2);
+        Check("chapters: padded to the highest present", clips[0].Name == "Chapter 01 (imported)");
+        Check("chapters: already-wide names left alone", clips[1].Name == "Chapter 10 (imported)");
+        Check("chapters: hand-written names are never touched", clips[3].Name == "my own scene name");
+        Check("chapters: near-misses are never touched", clips[4].Name == "Chapter 5 - the good bit");
+        Check("chapters: renumbering is idempotent", ChapterImport.RenumberImported(clips) == 0);
+        Check("chapters: repaired names now sort in order",
+              clips.Select(c => c.Name).OrderBy(s => s, NaturalOrder.Instance).First()
+                  == "Chapter 01 (imported)");
     }
 }

@@ -160,11 +160,12 @@ public static class FfmpegCommandTest
         Check("chapters: chapter title not mistaken for audio title",
             info.AudioTracks is [{ Title: "TrueHD 7.1 Atmos" }]);
 
-        // Chapters → scenes: consecutive, gap-free, standardized names.
+        // Chapters → scenes: consecutive, gap-free, zero-padded names so a long
+        // import stays in order wherever the names are shown plainly.
         List<Clip> scenes = ChapterImport.BuildScenes(info.Chapters, 23.98, globalBase: 1000, pictureCount: 200000);
         Check("chapters: one scene per chapter", scenes.Count == 3);
-        Check("chapters: standardized names",
-            scenes[0].Name == "Chapter 1 (imported)" && scenes[2].Name == "Chapter 3 (imported)");
+        Check("chapters: standardized padded names",
+            scenes[0].Name == "Chapter 01 (imported)" && scenes[2].Name == "Chapter 03 (imported)");
         Check("chapters: scene 1 spans to chapter 2 start",
             scenes[0].StartFrame == 1000 && scenes[0].EndFrame == 1000 + 5005 - 1);
         Check("chapters: scenes are contiguous",
@@ -176,8 +177,10 @@ public static class FfmpegCommandTest
         List<Clip> clamped = ChapterImport.BuildScenes(
             [new ChapterInfo(1, 0, 10), new ChapterInfo(2, 10, 10.001), new ChapterInfo(3, 10.001, 99999)],
             fps: 30, globalBase: 0, pictureCount: 600);
+        // A dropped chapter must not shift the numbering of the ones that
+        // survive, and must not change the padding width either.
         Check("chapters: degenerate chapter skipped, numbering kept",
-            clamped.Count == 2 && clamped[1].Name == "Chapter 3 (imported)");
+            clamped.Count == 2 && clamped[1].Name == "Chapter 03 (imported)");
         Check("chapters: clamped to video end", clamped[1].EndFrame == 599);
 
         // Language code helpers.

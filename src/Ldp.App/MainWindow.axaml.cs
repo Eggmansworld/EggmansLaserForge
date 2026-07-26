@@ -416,6 +416,16 @@ public partial class MainWindow : Window
             _projectPath = path;
             _settings.LastProjectPath = path;
             _settings.Save();
+
+            // Projects imported before chapter numbers were padded hold a mix of
+            // "Chapter 9" and "Chapter 10", which reads as scrambled anywhere the
+            // names are shown in plain order. Only names this app generated are
+            // touched, and the result is folded into the undo baseline below so
+            // opening a project never lands you with an undoable edit you did
+            // not make.
+            int renumbered = ChapterImport.RenumberImported(_project.Clips);
+            if (renumbered > 0) SaveProject();
+
             ResetUndoHistory();
             UpdateProjectUi();
 
@@ -426,7 +436,10 @@ public partial class MainWindow : Window
                 _suppressVideoSelection = false;
                 await ActivateVideoAsync(0);
             }
-            StatusText.Text = $"Opened {Path.GetFileName(path)}";
+            StatusText.Text = $"Opened {Path.GetFileName(path)}" +
+                              (renumbered > 0
+                                  ? $" — padded {renumbered} imported chapter name(s) so they sort in order"
+                                  : "");
 
             // Backfill thumbnails for any scenes that don't have one yet (e.g.
             // imported before thumbnail generation existed). No-op once cached.
@@ -2184,6 +2197,31 @@ public partial class MainWindow : Window
         ShowFrame((int)FrameSlider.Value);
     }
 
+    /// <summary>
+    /// Keys that add a move, in one table. WASD for the stick, Q/E for the two
+    /// buttons, Z to start a skip - a left-hand shape most people already own -
+    /// with 1/2 and the numpad kept as aliases so existing habits still work.
+    /// C sets a skip's end (see the switch below); it is not a move of its own.
+    ///
+    /// Being a table rather than a switch is the point: making these
+    /// user-assignable later is a matter of loading this dictionary from
+    /// settings, not rewriting the handler.
+    /// </summary>
+    private static readonly Dictionary<Key, InputKind> MoveKeys = new()
+    {
+        [Key.W] = InputKind.Up,
+        [Key.S] = InputKind.Down,
+        [Key.A] = InputKind.Left,
+        [Key.D] = InputKind.Right,
+        [Key.Q] = InputKind.Button1,
+        [Key.E] = InputKind.Button2,
+        [Key.Z] = InputKind.Skip,
+        [Key.D1] = InputKind.Button1,
+        [Key.NumPad1] = InputKind.Button1,
+        [Key.D2] = InputKind.Button2,
+        [Key.NumPad2] = InputKind.Button2,
+    };
+
     private void OnKeyDownTunnel(object? sender, KeyEventArgs e)
     {
         if (e.Source is TextBox) return; // text inputs own their keys
@@ -2210,6 +2248,17 @@ public partial class MainWindow : Window
         }
         if (_engine == null) return;
 
+        // Adding a move is the most repeated action in the app, so its keys sit
+        // under a hand resting on the left home row - the same WASD shape most
+        // players already have in their fingers - instead of being spelled out
+        // as U/D/L/R/S scattered across the board.
+        if (MoveKeys.TryGetValue(e.Key, out InputKind kind))
+        {
+            AddInteraction(kind);
+            e.Handled = true;
+            return;
+        }
+
         int step = e.KeyModifiers.HasFlag(KeyModifiers.Control) ? 100
                  : e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? 10
                  : 1;
@@ -2222,14 +2271,7 @@ public partial class MainWindow : Window
             case Key.Space: TogglePlayback(); e.Handled = true; break;
             case Key.I: OnMarkIn(null, null!); e.Handled = true; break;
             case Key.O: OnMarkOut(null, null!); e.Handled = true; break;
-            case Key.U: AddInteraction(InputKind.Up); e.Handled = true; break;
-            case Key.D: AddInteraction(InputKind.Down); e.Handled = true; break;
-            case Key.L: AddInteraction(InputKind.Left); e.Handled = true; break;
-            case Key.R: AddInteraction(InputKind.Right); e.Handled = true; break;
-            case Key.D1 or Key.NumPad1: AddInteraction(InputKind.Button1); e.Handled = true; break;
-            case Key.D2 or Key.NumPad2: AddInteraction(InputKind.Button2); e.Handled = true; break;
-            case Key.S: AddInteraction(InputKind.Skip); e.Handled = true; break;
-            case Key.E: OnSetSkipEnd(null, null!); e.Handled = true; break;
+            case Key.C: OnSetSkipEnd(null, null!); e.Handled = true; break;
             case Key.G: GotoBox.Focus(); GotoBox.SelectAll(); e.Handled = true; break;
             case Key.Enter:
                 if (NewClipButton.IsEnabled && !ClipForm.IsVisible) { OnNewClip(null, null!); e.Handled = true; }
@@ -2841,7 +2883,9 @@ public partial class MainWindow : Window
         Dictionary<Guid, (int Level, int Scene)> positions = _project.LevelPositions();
         return (_sceneSort switch
         {
-            SceneSort.Name => clips.OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase),
+            // Natural order, so "Chapter 9" precedes "Chapter 10" rather than
+            // following it the way plain text sorting insists.
+            SceneSort.Name => clips.OrderBy(c => c.Name, NaturalOrder.Instance),
             SceneSort.StartFrame => clips.OrderBy(c => c.StartFrame),
             // Unassigned scenes sort last rather than first: they are the ones
             // being hunted for, and a stable place to find them beats the top.
