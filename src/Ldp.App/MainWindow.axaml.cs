@@ -1,8 +1,10 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Platform.Storage;
@@ -319,9 +321,18 @@ public partial class MainWindow : Window
         EditorPane.IsVisible = ReferenceEquals(pane, EditorPane);
         Storyboard.IsVisible = ReferenceEquals(pane, Storyboard);
         GameSetup.IsVisible = ReferenceEquals(pane, GameSetup);
-        EditorTabButton.IsEnabled = !EditorPane.IsVisible;
-        StoryboardTabButton.IsEnabled = !Storyboard.IsVisible;
-        GameTabButton.IsEnabled = !GameSetup.IsVisible;
+        // The pane you are looking at is SELECTED, not unavailable. Disabling
+        // its button rendered the current view in Fluent's greyed-out style,
+        // which reads as "you can't use this" - the opposite of the truth.
+        MarkTab(EditorTabButton, EditorPane.IsVisible);
+        MarkTab(StoryboardTabButton, Storyboard.IsVisible);
+        MarkTab(GameTabButton, GameSetup.IsVisible);
+    }
+
+    private void MarkTab(Button tab, bool selected)
+    {
+        tab.Classes.Set("selected", selected);
+        tab.IsEnabled = true;
     }
 
     // ---------- Project lifecycle ----------
@@ -638,6 +649,55 @@ public partial class MainWindow : Window
         {
             return new Dictionary<string, string>();
         }
+    }
+
+    // ---------- Header stats ----------
+
+    private static readonly FontFamily MonoFont = new("Consolas,monospace");
+
+    /// <summary>
+    /// Paints the header's video stats so the numbers separate from the words.
+    /// It used to be one flat grey string, which meant reading the whole line to
+    /// find any single value in it. The filename reads as a name, every number
+    /// uses the app-wide frame colour, and units and separators recede.
+    /// </summary>
+    private void SetFileInfo(VideoSource source, int lastGlobal)
+    {
+        IBrush? name = (IBrush?)this.FindResource("FgPrimary");
+        IBrush? number = (IBrush?)this.FindResource("FrameText");
+        IBrush? quiet = (IBrush?)this.FindResource("FgFaint");
+
+        // A TextBlock renders Text AND Inlines, so the XAML placeholder has to
+        // go or it prefixes every stats line.
+        FileInfoText.Text = null;
+        InlineCollection runs = FileInfoText.Inlines ??= [];
+        runs.Clear();
+
+        void Word(string text, IBrush? brush) => runs.Add(new Run(text) { Foreground = brush });
+        void Number(string text) =>
+            runs.Add(new Run(text) { Foreground = number, FontFamily = MonoFont });
+        void Sep() => Word("  ·  ", quiet);
+
+        Word(Path.GetFileName(source.Path), name);
+        Sep();
+        Number($"{source.Width}×{source.Height}");
+        Sep();
+        Number($"{source.Fps:F3}");
+        Word(" fps", quiet);
+        Sep();
+        Number($"{source.PictureCount}");
+        Word(" frames", quiet);
+        Sep();
+        Word("global ", quiet);
+        Number($"{source.GlobalBase}–{lastGlobal}");
+    }
+
+    private void SetFileInfoPlain(string message)
+    {
+        FileInfoText.Text = null;
+        InlineCollection runs = FileInfoText.Inlines ??= [];
+        runs.Clear();
+        runs.Add(new Run(message) { Foreground = (IBrush?)this.FindResource("FgMuted") });
     }
 
     // ---------- Slot preview pictures ----------
@@ -1231,6 +1291,7 @@ public partial class MainWindow : Window
             };
             _project.Clips.Add(clip);
             _clipItems.Add(MakeClipItem(clip));
+            RevealScenes([clip]);
 
             if (produced.Range is { } range)
             {
@@ -1324,7 +1385,7 @@ public partial class MainWindow : Window
             VideoImage.Source = null;
             _bitmap = null;
             FrameSlider.IsEnabled = false;
-            FileInfoText.Text = "No videos — add one with '＋ Add Video…'";
+            SetFileInfoPlain("No videos — add one with '＋ Add Video…'");
         }
 
         StatusText.Text = $"Removed {Path.GetFileName(removed.Path)}" +
@@ -1623,6 +1684,7 @@ public partial class MainWindow : Window
         foreach (Clip clip in fresh) _clipItems.Add(MakeClipItem(clip));
         MarkDirty();
         SaveProject();
+        RevealScenes(fresh);
         return fresh.Count;
     }
 
@@ -1678,9 +1740,7 @@ public partial class MainWindow : Window
         VideoSource source = _project.Videos[index];
         int lastGlobal = source.GlobalBase + source.PictureCount - 1;
         _counterDigits = Math.Max(6, lastGlobal.ToString().Length);
-        FileInfoText.Text = $"{Path.GetFileName(source.Path)}  ·  {source.Width}x{source.Height}" +
-                            $"  ·  {source.Fps:F3} fps  ·  {source.PictureCount} frames" +
-                            $"  ·  global {source.GlobalBase}–{lastGlobal}";
+        SetFileInfo(source, lastGlobal);
         FrameTotal.Text = "/ " + lastGlobal.ToString().PadLeft(_counterDigits, '0');
 
         _updatingSlider = true;
@@ -2276,7 +2336,28 @@ public partial class MainWindow : Window
         UpdateMarkUi();
         MarkDirty();
         SaveProject();
+        RevealScenes([clip]);
         StatusText.Text = $"Clip '{clip.Name}' added ({clip.FrameCount} frames)";
+    }
+
+    /// <summary>
+    /// Brings just-created scenes into view and selects the first of them. A new
+    /// scene lands at the bottom of a list that may be a hundred rows long, so
+    /// without this the author has to go hunting for the thing they just made.
+    /// </summary>
+    private void RevealScenes(IReadOnlyList<Clip> created)
+    {
+        if (created.Count == 0) return;
+        Guid first = created[0].Id;
+        for (int i = 0; i < _clipItems.Count; i++)
+        {
+            if (_clipItems[i].Clip.Id != first) continue;
+            ClipList.SelectedIndex = i;
+            // Deferred: the item may not have been realised yet on the frame
+            // the collection changed, and ScrollIntoView needs a container.
+            Dispatcher.UIThread.Post(() => ClipList.ScrollIntoView(i), DispatcherPriority.Loaded);
+            return;
+        }
     }
 
     private void OnClipSelected(object? sender, SelectionChangedEventArgs e)

@@ -1,0 +1,104 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+      App-wide control density and scrollbar behaviour.
+
+      Everything here overrides a FluentTheme default. Fluent targets
+      touch-friendly consumer apps: its list rows carry generous padding and
+      its scrollbars stay hairline-thin until you hover them. In an authoring
+      tool where the author scans long lists of scenes and frame numbers all
+      day, both cost real time - the padding by cutting how much fits on
+      screen, the auto-hiding scrollbar by making you aim at a target that
+      only appears once you are already near it.
+    -->
+
+    <!-- ===== Lists ===== -->
+
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="{DynamicResource ListRowPadding}"/>
+        <Setter Property="MinHeight" Value="0"/>
+        <Setter Property="CornerRadius" Value="3"/>
+    </Style>
+
+    <!-- Fluent's own hover/selection brushes are tuned for its lighter
+         surfaces; on the blue-slate panels they read as muddy grey. -->
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource RowHover}"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#3D4CC2FF"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="#524CC2FF"/>
+    </Style>
+
+    <!-- ===== Scrollbars ===== -->
+
+    <!-- The whole point: never auto-hide. A scrollbar you have to summon is a
+         scrollbar you have to aim at twice. -->
+    <Style Selector="ScrollViewer">
+        <Setter Property="AllowAutoHide" Value="False"/>
+    </Style>
+
+    <Style Selector="ScrollBar:vertical">
+        <Setter Property="Width" Value="12"/>
+        <Setter Property="MinWidth" Value="12"/>
+    </Style>
+    <Style Selector="ScrollBar:horizontal">
+        <Setter Property="Height" Value="12"/>
+        <Setter Property="MinHeight" Value="12"/>
+    </Style>
+
+    <!-- Fixed thumb, visible at rest, no width animation on hover. -->
+    <Style Selector="ScrollBar:vertical /template/ Thumb#thumb">
+        <Setter Property="Width" Value="8"/>
+        <Setter Property="MinWidth" Value="8"/>
+    </Style>
+    <Style Selector="ScrollBar:horizontal /template/ Thumb#thumb">
+        <Setter Property="Height" Value="8"/>
+        <Setter Property="MinHeight" Value="8"/>
+    </Style>
+
+    <!-- ===== Game Setup slot rows ===== -->
+
+    <!-- Both states are classes rather than local values, so hover still shows
+         on a row that is already tinted for being unfilled. -->
+    <Style Selector="Border.slotrow">
+        <Setter Property="Background" Value="Transparent"/>
+    </Style>
+    <Style Selector="Border.slotrow.missing">
+        <Setter Property="Background" Value="{DynamicResource RowMissing}"/>
+    </Style>
+    <Style Selector="Border.slotrow:pointerover">
+        <Setter Property="Background" Value="{DynamicResource RowHover}"/>
+    </Style>
+    <Style Selector="Border.slotrow.missing:pointerover">
+        <Setter Property="Background" Value="#3AF0605C"/>
+    </Style>
+
+    <!-- ===== View tabs ===== -->
+
+    <!-- The current view is marked selected, never disabled. Accent earns its
+         one job here: blue means "this is the active thing". -->
+    <Style Selector="Button.selected">
+        <Setter Property="Background" Value="{DynamicResource Accent}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BgCanvas}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button.selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Accent}"/>
+        <Setter Property="Foreground" Value="{DynamicResource BgCanvas}"/>
+    </Style>
+
+    <!-- ===== Text ===== -->
+
+    <!-- Frame numbers are monospace everywhere so digits line up column-wise
+         between rows; scanning a column of ragged proportional digits is
+         measurably slower. -->
+    <Style Selector="TextBlock.frame">
+        <Setter Property="FontFamily" Value="Consolas,monospace"/>
+        <Setter Property="Foreground" Value="{DynamicResource FrameText}"/>
+    </Style>
+
+</Styles>

@@ -119,13 +119,16 @@
 
                         <!-- Counter directly above the transport buttons -->
                         <StackPanel Spacing="2">
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                            <!-- Current frame and total read as ONE value: same family, same
+                                 hue, total clearly secondary. Baseline alignment comes from the
+                                 shared text baseline, not from nudging with a margin. -->
+                            <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                                 <TextBlock Name="FrameCounter" Text="——————" FontFamily="Consolas,monospace"
-                                           FontSize="32" FontWeight="Bold" Foreground="{DynamicResource Accent}"
+                                           FontSize="32" FontWeight="Bold" Foreground="{DynamicResource FrameText}"
                                            DoubleTapped="OnCounterDoubleTapped"/>
                                 <TextBlock Name="FrameTotal" Text="" FontFamily="Consolas,monospace"
-                                           FontSize="15" Foreground="{DynamicResource FgFaint}"
-                                           VerticalAlignment="Bottom" Margin="0,0,0,5"/>
+                                           FontSize="21" Foreground="{DynamicResource FrameTextDim}"
+                                           VerticalAlignment="Center"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
                                 <Button Content="⏮"    Focusable="False" Click="OnTransport" Tag="home"  FontSize="16" Width="44"/>
@@ -146,7 +149,7 @@
                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Bottom" Margin="0,0,0,3">
                             <Button Name="MarkInButton"  Content="⟦ In"  Focusable="False" IsEnabled="False" Click="OnMarkIn"/>
                             <Button Name="MarkOutButton" Content="Out ⟧" Focusable="False" IsEnabled="False" Click="OnMarkOut"/>
-                            <TextBlock Name="MarkText" VerticalAlignment="Center" Foreground="{DynamicResource AccentAmber}"
+                            <TextBlock Name="MarkText" VerticalAlignment="Center" Foreground="{DynamicResource FrameText}"
                                        FontFamily="Consolas,monospace" FontSize="14" Text=""/>
                             <Button Name="ClearMarksButton" Content="✕" Focusable="False" IsEnabled="False" Click="OnClearMarks"
                                     ToolTip.Tip="Clear the In/Out marks"/>
@@ -176,9 +179,15 @@
                              Focusable="False" Margin="0,0,0,8">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="app:VideoItem">
-                                <StackPanel Margin="2">
-                                    <TextBlock Text="{Binding Title}" Foreground="{DynamicResource FgPrimary}" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FgFaint}" FontSize="11" FontFamily="Consolas,monospace"/>
+                                <StackPanel Margin="0,1">
+                                    <!-- Wraps rather than ellipsing: names share a long game-folder
+                                         prefix, so the tail is the part that identifies the file and
+                                         it was exactly the part being cut off. -->
+                                    <TextBlock Text="{Binding Title}" Foreground="{DynamicResource FgPrimary}"
+                                               FontSize="13" TextWrapping="Wrap" MaxLines="2"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FrameText}"
+                                               FontSize="11" FontFamily="Consolas,monospace"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
@@ -218,7 +227,7 @@
                             CornerRadius="8" Padding="20" BorderBrush="{DynamicResource Divider}" BorderThickness="1">
                         <StackPanel Spacing="10" Width="380">
                             <TextBlock Text="New Scene" Foreground="{DynamicResource FgPrimary}" FontSize="16" FontWeight="Bold"/>
-                            <TextBlock Name="ClipFormRange" Foreground="{DynamicResource AccentAmber}" FontFamily="Consolas,monospace" FontSize="13"/>
+                            <TextBlock Name="ClipFormRange" Foreground="{DynamicResource FrameText}" FontFamily="Consolas,monospace" FontSize="13"/>
                             <TextBox Name="ClipNameBox" PlaceholderText="Scene name (e.g. 'Level 2 bots attack death')"
                                      KeyDown="OnClipFormKeyDown"/>
                             <TextBox Name="ClipDescBox" PlaceholderText="Description / notes (optional, Shift+Enter for new line)"
@@ -244,8 +253,8 @@
                              SelectionMode="Multiple" Focusable="False" DoubleTapped="OnGotoClip">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="app:ClipItem">
-                                <DockPanel Margin="2">
-                                    <Image DockPanel.Dock="Left" Source="{Binding Thumbnail}" Width="88" Height="50"
+                                <DockPanel Margin="0,1">
+                                    <Image DockPanel.Dock="Left" Source="{Binding Thumbnail}" Width="64" Height="36"
                                            Stretch="UniformToFill" Margin="0,0,8,0"/>
                                     <!-- Level·scene position: the numbers setupMoves branches on.
                                          Absent means no level plays this scene yet. -->
@@ -257,7 +266,7 @@
                                     </Border>
                                     <StackPanel VerticalAlignment="Center">
                                         <TextBlock Text="{Binding Name}" Foreground="{DynamicResource FgPrimary}" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                                        <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FgFaint}" FontSize="13" FontFamily="Consolas,monospace"/>
+                                        <TextBlock Text="{Binding Range}" Foreground="{DynamicResource FrameText}" FontSize="12" FontFamily="Consolas,monospace"/>
                                     </StackPanel>
                                 </DockPanel>
                             </DataTemplate>

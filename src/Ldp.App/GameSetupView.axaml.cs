@@ -110,31 +110,27 @@ public partial class GameSetupView : UserControl
         AddHeader("FILE LOCATIONS");
         SlotsPanel.Children.Add(PathsBlock());
 
-        AddHeader("ATTRACT & TITLE");
-        foreach (SlotCatalog.RangeInfo info in SlotCatalog.Ranges.Where(r =>
-                     r.Slot is RangeSlot.Title or RangeSlot.Intro01 or RangeSlot.Intro02
-                     or RangeSlot.Intro03 or RangeSlot.IntroGame))
-            SlotsPanel.Children.Add(RangeRow(info));
+        AddSection("ATTRACT & TITLE", SlotCatalog.Ranges
+            .Where(r => r.Slot is RangeSlot.Title or RangeSlot.Intro01 or RangeSlot.Intro02
+                        or RangeSlot.Intro03 or RangeSlot.IntroGame)
+            .Select(RangeRow).ToList());
 
-        AddHeader("SYSTEM VIDEOS");
-        foreach (SlotCatalog.RangeInfo info in SlotCatalog.Ranges.Where(r =>
-                     r.Slot is RangeSlot.Continue or RangeSlot.LevelClear or RangeSlot.GetReady
-                     or RangeSlot.SupDeath or RangeSlot.GameOver or RangeSlot.GameOverAlt
-                     or RangeSlot.NewHighScore or RangeSlot.EnterHighScore or RangeSlot.Rankings
-                     or RangeSlot.Map))
-            SlotsPanel.Children.Add(RangeRow(info));
+        AddSection("SYSTEM VIDEOS", SlotCatalog.Ranges
+            .Where(r => r.Slot is RangeSlot.Continue or RangeSlot.LevelClear or RangeSlot.GetReady
+                        or RangeSlot.SupDeath or RangeSlot.GameOver or RangeSlot.GameOverAlt
+                        or RangeSlot.NewHighScore or RangeSlot.EnterHighScore or RangeSlot.Rankings
+                        or RangeSlot.Map)
+            .Select(RangeRow).ToList());
 
-        AddHeader("MENU & STILL FRAMES");
-        foreach (SlotCatalog.StillInfo info in SlotCatalog.Stills.Where(s =>
-                     s.Slot is not (StillSlot.DifficultyEasy or StillSlot.DifficultyNormal
-                     or StillSlot.DifficultyHard or StillSlot.DifficultyExtreme)))
-            SlotsPanel.Children.Add(StillRow(info));
+        AddSection("MENU & STILL FRAMES", SlotCatalog.Stills
+            .Where(s => s.Slot is not (StillSlot.DifficultyEasy or StillSlot.DifficultyNormal
+                        or StillSlot.DifficultyHard or StillSlot.DifficultyExtreme))
+            .Select(StillRow).ToList());
 
-        AddHeader("DIFFICULTY SELECT FRAMES");
-        foreach (SlotCatalog.StillInfo info in SlotCatalog.Stills.Where(s =>
-                     s.Slot is StillSlot.DifficultyEasy or StillSlot.DifficultyNormal
-                     or StillSlot.DifficultyHard or StillSlot.DifficultyExtreme))
-            SlotsPanel.Children.Add(StillRow(info));
+        AddSection("DIFFICULTY SELECT FRAMES", SlotCatalog.Stills
+            .Where(s => s.Slot is StillSlot.DifficultyEasy or StillSlot.DifficultyNormal
+                        or StillSlot.DifficultyHard or StillSlot.DifficultyExtreme)
+            .Select(StillRow).ToList());
 
         AddHeader("LEVELS (the play order the framework runs)");
         SlotsPanel.Children.Add(LevelsBlock());
@@ -621,7 +617,7 @@ public partial class GameSetupView : UserControl
         var block = new TextBlock
         {
             Text = text,
-            Foreground = (IBrush?)this.FindResource("AccentAmber"),
+            Foreground = (IBrush?)this.FindResource("FrameText"),
             FontFamily = new FontFamily("Consolas,monospace"),
             FontSize = 11,
             VerticalAlignment = VerticalAlignment.Center,
@@ -1018,7 +1014,6 @@ public partial class GameSetupView : UserControl
         var grid = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions($"190,{ThumbWidth + 10},*,86,40"),
-            Margin = new Thickness(0, 1),
         };
 
         var nameBlock = new TextBlock
@@ -1128,6 +1123,49 @@ public partial class GameSetupView : UserControl
         Grid.SetColumn(clear, 4);
         grid.Children.Add(clear);
 
-        return grid;
+        // The row's frame, not the row itself: hover and the unfilled-required
+        // tint are both classes, so neither is a local value that would stop
+        // the other from applying.
+        var shell = new Border
+        {
+            Child = grid,
+            Padding = new Thickness(8, 3),
+            CornerRadius = new CornerRadius(3),
+        };
+        shell.Classes.Add("slotrow");
+        if (missingRequired) shell.Classes.Add("missing");
+        return shell;
+    }
+
+    /// <summary>
+    /// One titled group of rows on a single card, the way the LEVELS section
+    /// already works. Rows used to sit on the window background with nothing
+    /// separating them, so a long column of them had no visible structure.
+    /// </summary>
+    private void AddSection(string header, IReadOnlyList<Control> rows)
+    {
+        AddHeader(header);
+        if (rows.Count == 0) return;
+
+        var stack = new StackPanel();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            if (i > 0)
+                stack.Children.Add(new Border
+                {
+                    Height = 1,
+                    Background = (IBrush?)this.FindResource("Divider"),
+                    Margin = new Thickness(8, 0),
+                });
+            stack.Children.Add(rows[i]);
+        }
+
+        SlotsPanel.Children.Add(new Border
+        {
+            Child = stack,
+            Background = (IBrush?)this.FindResource("BgPanel"),
+            CornerRadius = new CornerRadius(6),
+            Padding = new Thickness(4),
+        });
     }
 }

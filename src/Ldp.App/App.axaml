@@ -24,14 +24,42 @@
         <SolidColorBrush x:Key="FgMuted" Color="#C2C8D9"/>
         <SolidColorBrush x:Key="FgFaint" Color="#9CA4BB"/>
         <SolidColorBrush x:Key="Divider" Color="#3B4152"/>
+        <!-- Accent means ONE thing: interactive or selected. It never carries
+             data, so a blue thing on screen is always something to act on. -->
         <SolidColorBrush x:Key="Accent" Color="#4CC2FF"/>
         <SolidColorBrush x:Key="AccentAmber" Color="#E8B04C"/>
         <SolidColorBrush x:Key="PortSuccess" Color="#5CD679"/>
         <SolidColorBrush x:Key="PortDeath" Color="#F0605C"/>
         <SolidColorBrush x:Key="PortTimeout" Color="#E8B04C"/>
+
+        <!--
+          A frame number is the one value this whole app is about, so it looks
+          the same everywhere and can be picked out by colour alone. Kept
+          separate from AccentAmber (which means "warning") so the two can move
+          apart later without dragging each other along.
+
+          The rule that goes with it: FgFaint is for LABELS, never for data.
+          It measures ~5.4:1 on BgPanel - passing, but tiring to scan, which is
+          exactly why frame numbers used to be hard work to read.
+        -->
+        <SolidColorBrush x:Key="FrameText" Color="#F0B950"/>
+        <SolidColorBrush x:Key="FrameTextDim" Color="#B08A3E"/>
+
+        <!-- Row tints: hover, and the marker for a required slot nobody has
+             filled in yet (so "what's left to do" is scannable, not read). -->
+        <SolidColorBrush x:Key="RowHover" Color="#14FFFFFF"/>
+        <SolidColorBrush x:Key="RowMissing" Color="#24F0605C"/>
+
+        <!-- Density lives here, once, rather than being tuned per control. -->
+        <Thickness x:Key="ListRowPadding">6,2</Thickness>
+        <Thickness x:Key="FormRowPadding">8,3</Thickness>
     </Application.Resources>
 
     <Application.Styles>
         <FluentTheme />
+        <!-- Without this the app inherits FluentTheme's touch-friendly list
+             padding and auto-hiding scrollbars, which is where all the loose
+             spacing and the hover-to-find-the-scrollbar delay came from. -->
+        <StyleInclude Source="avares://LaserForge/Styles/Controls.axaml"/>
     </Application.Styles>
 </Application>

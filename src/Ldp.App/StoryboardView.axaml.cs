@@ -347,7 +347,7 @@ public partial class StoryboardView : UserControl
             stack.Children.Add(new TextBlock
             {
                 Text = (clip?.Range ?? "") + (moveCount > 0 ? $" · {moveCount} moves" : ""),
-                Foreground = (IBrush?)this.FindResource("FgFaint"),
+                Foreground = (IBrush?)this.FindResource("FrameText"),
                 FontFamily = new FontFamily("Consolas,monospace"),
                 FontSize = 10,
             });
