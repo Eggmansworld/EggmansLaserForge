@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.7-win-x64.zip`**.
+   and download the file named **`EggmansLaserForge-0.1.8-win-x64.zip`**.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`LaserForge.exe`**.
@@ -287,6 +287,18 @@ The sections:
   primary track has an empty suffix → `main.ogg`; a Russian track with suffix
   `_russian` → `main_russian.ogg`).
 
+### Finding scenes
+
+The **SCENES** list has a **Find** box, a sort selector, and quick filter chips
+— **No level**, **No moves**, **Deaths** — for the states that actually cause
+export problems. The header shows how many are hidden ("38 of 74 shown"), and
+your filter, sort and search text are remembered next time you open the app.
+
+Sorting changes only what *you* see. The play order the script uses comes from
+the project's own scene order, so re-sorting the list can never change what the
+exported game does. (Hand reordering with ▲▼ is only available in **Project
+order**, where moving a row actually shows.)
+
 Two kinds of slot, two ways to fill them:
 
 - A **video slot** wants a whole scene: select a scene in the bin, then click
@@ -410,11 +422,15 @@ Most authoring is faster from the keyboard:
 | **Space** | Play / pause |
 | **I / O** | Mark In / Mark Out |
 | **Enter** | Create a new scene from the current In/Out |
-| **U / D / L / R** | Add an Up / Down / Left / Right move at the current frame |
-| **1 / 2** | Add an action-button 1 / 2 move |
-| **S** | Add a Skip move |
-| **E** | Set the selected Skip's end to the current frame |
+| **W / A / S / D** | Add an Up / Left / Down / Right move at the current frame |
+| **Q / E** | Add an action-button 1 / 2 move (**1 / 2** also work) |
+| **Z** | Start a Skip move |
+| **C** | Set the selected Skip's end to the current frame |
+| **G** | Jump to the "go to frame" box |
 | **Ctrl + Z** | Undo |
+
+Adding moves is the most repeated thing you'll do, so those keys sit under a
+hand resting on the left home row — the same **WASD** shape most games use.
 
 ---
 

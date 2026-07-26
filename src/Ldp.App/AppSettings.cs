@@ -16,6 +16,18 @@ public sealed class AppSettings
     /// video conversion. Asked for once, then reused.</summary>
     public string? FfmpegPath { get; set; }
 
+    /// <summary>
+    /// How the scenes list was last being looked at. Stored as enum NAMES rather
+    /// than numbers so reordering the enums later can't silently reinterpret an
+    /// existing settings file as a different setting.
+    /// </summary>
+    public string? SceneSort { get; set; }
+
+    public string? SceneFilter { get; set; }
+
+    /// <summary>Text last typed in the scenes Find box.</summary>
+    public string? SceneFindText { get; set; }
+
     private static string FilePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "EggmansLaserdiscPublisher", "settings.json");

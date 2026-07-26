@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         ClipList.ItemsSource = _clipItems;
         LogList.ItemsSource = _logItems;
         BuildSceneViewControls();
+        RestoreSceneView();
 
         // Every status message is captured into the slide-open log history.
         StatusText.PropertyChanged += (_, e) =>
@@ -146,7 +147,13 @@ public partial class MainWindow : Window
         _autosaveTimer.Tick += (_, _) => { if (_dirty) SaveProject(auto: true); };
         _autosaveTimer.Start();
 
-        Closing += (_, _) => { if (_dirty && _project != null) SaveProject(auto: true); };
+        Closing += (_, _) =>
+        {
+            if (_dirty && _project != null) SaveProject(auto: true);
+            // Find text is captured here rather than per keystroke, which would
+            // rewrite the settings file on every letter typed.
+            SaveSceneView();
+        };
         Opened += async (_, _) =>
         {
             if (_settings.LastProjectPath is { } last && File.Exists(last))
@@ -2794,12 +2801,62 @@ public partial class MainWindow : Window
     /// <summary>Drops a cached row so its thumbnail or text is rebuilt next time.</summary>
     private void InvalidateSceneItem(Guid clipId) => _clipItemCache.Remove(clipId);
 
+    /// <summary>
+    /// Blocks saving until the saved view has been applied. Starts TRUE on
+    /// purpose: building the controls selects a default in the sort combo, which
+    /// raises its changed event, which would otherwise write the defaults over
+    /// the stored view a moment before anything reads them.
+    /// </summary>
+    private bool _restoringSceneView = true;
+
     private void OnSceneFilterChanged(object? sender, TextChangedEventArgs e) => RefreshSceneRows();
 
     private void OnSceneViewChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (SceneSortCombo.SelectedItem is SortChoice choice) _sceneSort = choice.Value;
         RefreshSceneRows();
+        SaveSceneView();
+    }
+
+    /// <summary>
+    /// Remembers how the list was being looked at. The state stays visible while
+    /// it applies — the chip is lit, the Find box shows its text, and the header
+    /// reads "38 of 74 shown" — so a filter surviving a restart is a convenience
+    /// rather than a mystery about where the other scenes went.
+    /// </summary>
+    private void SaveSceneView()
+    {
+        if (_restoringSceneView) return;
+        _settings.SceneSort = _sceneSort.ToString();
+        _settings.SceneFilter = _sceneFilter.ToString();
+        _settings.SceneFindText = SceneFilterBox.Text ?? "";
+        _settings.Save();
+    }
+
+    private void RestoreSceneView()
+    {
+        _restoringSceneView = true;
+        try
+        {
+            if (Enum.TryParse(_settings.SceneSort, out SceneSort sort))
+            {
+                _sceneSort = sort;
+                SceneSortCombo.SelectedIndex = Math.Max(0, _sortChoices.FindIndex(c => c.Value == sort));
+            }
+            if (Enum.TryParse(_settings.SceneFilter, out SceneFilter filter))
+            {
+                _sceneFilter = filter;
+                foreach (Control child in SceneChips.Children)
+                    if (child is ToggleButton chip)
+                        chip.IsChecked = (SceneFilter)chip.Tag! == filter;
+            }
+            if (!string.IsNullOrEmpty(_settings.SceneFindText))
+                SceneFilterBox.Text = _settings.SceneFindText;
+        }
+        finally
+        {
+            _restoringSceneView = false;
+        }
     }
 
     private sealed record SortChoice(SceneSort Value, string Label)
@@ -2807,16 +2864,18 @@ public partial class MainWindow : Window
         public override string ToString() => Label;
     }
 
+    private readonly List<SortChoice> _sortChoices =
+    [
+        new(SceneSort.Manual, "Project order"),
+        new(SceneSort.Name, "Name"),
+        new(SceneSort.StartFrame, "Start frame"),
+        new(SceneSort.Level, "Level · scene"),
+        new(SceneSort.Moves, "Move count"),
+    ];
+
     private void BuildSceneViewControls()
     {
-        SceneSortCombo.ItemsSource = new List<SortChoice>
-        {
-            new(SceneSort.Manual, "Project order"),
-            new(SceneSort.Name, "Name"),
-            new(SceneSort.StartFrame, "Start frame"),
-            new(SceneSort.Level, "Level · scene"),
-            new(SceneSort.Moves, "Move count"),
-        };
+        SceneSortCombo.ItemsSource = _sortChoices;
         SceneSortCombo.SelectedIndex = 0;
 
         foreach ((SceneFilter filter, string label, string tip) in ((SceneFilter, string, string)[])
@@ -2848,6 +2907,7 @@ public partial class MainWindow : Window
                 foreach (Control other in SceneChips.Children)
                     if (other is ToggleButton t) t.IsChecked = ReferenceEquals(t, chip);
                 RefreshSceneRows();
+                SaveSceneView();
             };
             SceneChips.Children.Add(chip);
         }
