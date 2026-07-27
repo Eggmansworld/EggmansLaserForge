@@ -1,0 +1,9 @@
+# Singe's Lua parses these files byte by byte and slices fields with string.sub,
+# so a CR is not whitespace to it — it lands inside the last field on the line.
+# readScore takes a level's difficulty letter as everything after '!', which
+# makes a CRLF file yield "E\r" where every comparison expects "E".
+#
+# core.autocrlf is on for this repo, so without these rules a fresh clone on
+# Windows checks them out as CRLF and ships them that way.
+*.cfg    text eol=lf
+*.singe  text eol=lf
