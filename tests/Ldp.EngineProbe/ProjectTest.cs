@@ -178,6 +178,7 @@ public static class ProjectTest
             Console.WriteLine("  sonic import: SKIPPED (reference script not found — set aside in temp/)");
             FfmpegCommandTest.Run(Check);
             StillImageTest.Run(Check);
+            LevelCfgFilesTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1097,6 +1098,9 @@ public static class ProjectTest
 
         // ---- Still image → passage ----
         StillImageTest.Run(Check);
+
+        // ---- Per-level Cfg files grown to the level count ----
+        LevelCfgFilesTest.Run(Check);
 
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
         return failures == 0 ? 0 : 1;

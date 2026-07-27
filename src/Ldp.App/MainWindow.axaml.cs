@@ -887,12 +887,22 @@ public partial class MainWindow : Window
         await File.WriteAllTextAsync(paths.ScriptPath, filled.Script);
         await File.WriteAllTextAsync(paths.FramePath, SingeExporter.BuildFrameFile(_project));
 
+        string gameFolder = Path.GetDirectoryName(paths.ScriptPath)!;
+
         // Singe's own service-menu settings survive every change made here, so a
         // start level that has since been deleted crashes the game with nothing
         // pointing back at a dip switch. Checked after writing so the warning
         // reflects the script that just landed on disk.
-        filled.Warnings.AddRange(
-            GameConfig.ValidateFolder(Path.GetDirectoryName(paths.ScriptPath)!, _project));
+        filled.Warnings.AddRange(GameConfig.ValidateFolder(gameFolder, _project));
+
+        // Cfg/hscore.cfg and the save slots carry one row per level, and the
+        // framework reads exactly finalstage of them without checking for end of
+        // file. Files left behind at a smaller level count take the game down at
+        // boot with an error naming neither levels nor the file. Grown here,
+        // where finalstage is known.
+        if (LevelCfgFiles.RepairFolder(gameFolder, _project.Levels.Count) is { } cfgNote)
+            filled.Warnings.Add(cfgNote);
+
         return filled.Warnings;
     }
 
@@ -949,6 +959,13 @@ public partial class MainWindow : Window
         }
         try
         {
+            // Projects predating the bundled support files, or folders an author
+            // has pruned, get the gaps filled here rather than failing at boot.
+            // Runs before the export because the bundled Cfg files arrive sized
+            // for a fixed number of levels and the export is what grows them —
+            // filling afterwards would drop stale files in behind the fix.
+            string? added = InstallGameSupportFiles() is { Length: > 0 } note ? note : null;
+
             List<string>? warnings = await ExportGameAsync();
             if (warnings == null) return;
 
@@ -961,9 +978,7 @@ public partial class MainWindow : Window
             if (FrameworkGlobalsMissing() is { } missing)
                 warnings.Insert(0, missing);
 
-            // Projects predating the bundled support files, or folders an author
-            // has pruned, get the gaps filled here rather than failing at boot.
-            if (InstallGameSupportFiles() is { Length: > 0 } added)
+            if (added != null)
                 warnings.Insert(0, added + " — the game folder was missing support files the framework needs.");
 
             var dialog = new TestHypseusDialog(_project.HypseusRoot, _project.EffectiveGameFolder, warnings);
