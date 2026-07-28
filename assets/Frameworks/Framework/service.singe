@@ -3571,11 +3571,11 @@ function updateOptsMinP(thisIndex)
 
 		if LangOpt ~= nil then
 
-			dip_Lang = dip_Lang + 1
+			dip_Lang = dip_Lang - 1
 
-			if dip_Lang >= #LangOpt then
+			if dip_Lang < 0 then
 
-				dip_Lang = 0
+				dip_Lang = #LangOpt - 1
 
 			end
 

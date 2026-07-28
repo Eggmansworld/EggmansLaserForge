@@ -4534,7 +4534,7 @@ function drawCredits()     -- Draw the credits
 	if heartbeat then	
 		
 		if (dip_CoinsPerCredit == DOPT_FREEPLAY) then					
-			spriteDraw(posxUI,ycoinpos, sprite[FREEPLAY])
+			spriteDraw(posxUIF,ycoinpos, sprite[FREEPLAY])
 		
 		else
 
@@ -4547,7 +4547,7 @@ function drawCredits()     -- Draw the credits
 				
 				else
 				
-					spriteDraw(posxUI,ycoinpos,sprite[INSERTCOIN])
+					spriteDraw(posxUIF,ycoinpos,sprite[INSERTCOIN])
 				
 				end
 			end
@@ -4702,7 +4702,7 @@ function drawGet()       -- Draw get ready
 
 	if heartbeat then				
 				
-		spriteDraw(posxTEXT,posyBUTTONS,sprite[GETREADY])
+		spriteDraw(posxUIR,posyBUTTONS,sprite[GETREADY])
 				
 	end
 	
@@ -5163,6 +5163,8 @@ function getRes()
 	BUTW = spriteGetWidth(sprArrow[BUTTON1])
 	BUTH = spriteGetHeight(sprArrow[BUTTON1])
 	SKIPW = spriteGetWidth(sprite[SKIPINTRO])
+	FREEPW = spriteGetWidth(sprite[FREEPLAY])
+	READYW = spriteGetWidth(sprite[GETREADY])
 	SCNW = spriteGetWidth(sprite[SCENES])
 	CRDW = spriteGetWidth(sprite[CREDIT])
 	ARUW = spriteGetWidth(sprArrow[UP])
@@ -5184,6 +5186,8 @@ function getRes()
 
 	posxTEXT = (OVLW/2)-(TEXW/2)
 	posxUI = (OVLW/2)-(SKIPW/2)
+	posxUIF = (OVLW/2)-(FREEPW/2)
+	posxUIR = (OVLW/2)-(READYW/2)
 
 	posxUDARROWS = (OVLW/2)-(ARUW/2)
 	posyLRARROWS = (OVLH/2)-(ARLH/2)
