@@ -17,6 +17,25 @@ public sealed class LdpProject
     public string Name { get; set; } = "";
 
     /// <summary>
+    /// Who made the source material — studio, production company, channel.
+    /// Optional; written into the script header when set. Distinct from
+    /// <see cref="Author"/>, who wrote the game.
+    /// </summary>
+    public string Studio { get; set; } = "";
+
+    /// <summary>
+    /// Copyright line for the source material, e.g. "© 2019 Twentieth Century
+    /// Fox". Optional; written into the script header when set.
+    /// </summary>
+    public string Copyright { get; set; } = "";
+
+    /// <summary>
+    /// Reference link for the source material — IMDb, TheTVDB, YouTube, an
+    /// official site. Optional; written into the script header when set.
+    /// </summary>
+    public string Url { get; set; } = "";
+
+    /// <summary>
     /// The game folder / script base name (no spaces): the folder under
     /// singe/ and the .singe / .txt / .ldproj base name. Drives MYDIR.
     /// </summary>

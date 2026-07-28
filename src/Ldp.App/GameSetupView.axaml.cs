@@ -84,6 +84,20 @@ public partial class GameSetupView : UserControl
         SlotsPanel.Children.Add(TextRow("Game name", _project.Name,
             v => _project.Name = v,
             hint: "The internal title (singeSetGameName + README), e.g. \"Sonic the Hedgehog, The Movie\". Independent of the folder/file name."));
+        // Source-material credits, kept next to the title they describe. All
+        // three are optional and only reach the script header when filled in.
+        SlotsPanel.Children.Add(TextRow("Studio", _project.Studio,
+            v => _project.Studio = v.Trim(),
+            placeholder: "Studio, production company, or channel",
+            hint: "Who made the source material — not you. The author credit is the field below."));
+        SlotsPanel.Children.Add(TextRow("Copyright", _project.Copyright,
+            v => _project.Copyright = v.Trim(),
+            placeholder: "© 2019 Twentieth Century Fox",
+            hint: "Copyright line for the source material, written into the script header."));
+        SlotsPanel.Children.Add(TextRow("URL", _project.Url,
+            v => _project.Url = v.Trim(),
+            placeholder: "IMDB, TheTVDB, YouTube, other website..",
+            hint: "Where the source material can be looked up. Written into the script header."));
         SlotsPanel.Children.Add(TextRow("Game folder", _project.GameFolder,
             v => _project.GameFolder = LdpProject.SanitizeFolder(v),
             hint: "Folder + script/file base name (no spaces). Drives MYDIR and the exported file names."));
@@ -310,7 +324,7 @@ public partial class GameSetupView : UserControl
         var title = new TextBox
         {
             Text = level.Title,
-            Watermark = "Level title (shown in game)",
+            PlaceholderText = "Level title (shown in game)",
             FontSize = 13,
             Margin = new Thickness(8, 0),
         };
@@ -705,7 +719,7 @@ public partial class GameSetupView : UserControl
         var box = new TextBox
         {
             Text = current ?? "",
-            Watermark = placeholder,
+            PlaceholderText = placeholder,
             FontFamily = new FontFamily("Consolas,monospace"),
             FontSize = 13,
         };
@@ -768,14 +782,14 @@ public partial class GameSetupView : UserControl
             GameLanguage lang = _project.Languages[i];
             var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,140,36"), Margin = new Thickness(0, 1) };
 
-            var nameBox = new TextBox { Text = lang.Name, Watermark = "Language name", FontSize = 13 };
+            var nameBox = new TextBox { Text = lang.Name, PlaceholderText = "Language name", FontSize = 13 };
             nameBox.LostFocus += (_, _) => { lang.Name = nameBox.Text ?? ""; SlotsChanged?.Invoke(); };
             row.Children.Add(nameBox);
 
             var suffixBox = new TextBox
             {
                 Text = lang.Suffix,
-                Watermark = "(suffix)",
+                PlaceholderText = "(suffix)",
                 FontFamily = new FontFamily("Consolas,monospace"),
                 FontSize = 13,
             };
@@ -906,7 +920,7 @@ public partial class GameSetupView : UserControl
         var box = new TextBox
         {
             Text = value,
-            Watermark = placeholder,
+            PlaceholderText = placeholder,
             FontSize = 13,
             AcceptsReturn = multiline,
             // Multiline boxes grow with their content (no fixed height); the

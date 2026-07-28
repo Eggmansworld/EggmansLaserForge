@@ -407,6 +407,67 @@ public static class ProjectTest
               structFill.Script.Contains("AUTHOR:\t\t\t\tEggman") &&
               structFill.Script.Contains("SYNOPSIS: Sonic, Tails, and Knuckles battle Dr. Robotnik."));
 
+        // ---- Source-material credits (Studio / Copyright / URL) ----
+        // Optional, so an author who leaves them blank gets no empty header
+        // lines; filled in, each lands under the title it describes.
+        var creditsProject = new LdpProject
+        {
+            Name = "Credited Game",
+            Author = "Eggman",
+            GameDate = "2026-07-28",
+        };
+        string blankHeader = SingeTemplate.Apply(creditsProject, SingeTemplate.DefaultTemplate).Script;
+        Check("credits: blank fields write no header lines",
+              !blankHeader.Contains("STUDIO:") && !blankHeader.Contains("COPYRIGHT:") &&
+              !blankHeader.Contains("URL:"));
+
+        creditsProject.Studio = "Twentieth Century Fox";
+        creditsProject.Copyright = "© 2019 Twentieth Century Fox";
+        creditsProject.Url = "https://www.imdb.com/title/tt0437086/";
+        string creditedHeader = SingeTemplate.Apply(creditsProject, SingeTemplate.DefaultTemplate).Script;
+        Check("credits: studio reaches the header",
+              creditedHeader.Contains("STUDIO:\t\t\t\tTwentieth Century Fox"));
+        Check("credits: copyright reaches the header",
+              creditedHeader.Contains("COPYRIGHT:\t\t\t© 2019 Twentieth Century Fox"));
+        Check("credits: url reaches the header",
+              creditedHeader.Contains("URL:\t\t\t\thttps://www.imdb.com/title/tt0437086/"));
+        Check("credits: they sit between the title and the version",
+              creditedHeader.IndexOf("PROGRAM NAME:", StringComparison.Ordinal)
+                  < creditedHeader.IndexOf("STUDIO:", StringComparison.Ordinal) &&
+              creditedHeader.IndexOf("URL:", StringComparison.Ordinal)
+                  < creditedHeader.IndexOf("VERSION:", StringComparison.Ordinal));
+
+        // Whitespace-only must count as blank, or a stray space would emit a
+        // header line with nothing after the colon.
+        creditsProject.Studio = "   ";
+        creditsProject.Copyright = "";
+        creditsProject.Url = "  ";
+        Check("credits: whitespace-only counts as blank",
+              !SingeTemplate.Apply(creditsProject, SingeTemplate.DefaultTemplate).Script.Contains("STUDIO:"));
+
+        // They must survive a save/load round trip like every other field.
+        var creditsRound = new LdpProject
+        {
+            Name = "Round Trip",
+            Studio = "Studio Ghibli",
+            Copyright = "© 1988 Studio Ghibli",
+            Url = "https://thetvdb.com/",
+        };
+        string creditsPath = Path.Combine(Path.GetTempPath(), "ldp-credits-" + Guid.NewGuid().ToString("N")[..8] + ".ldproj");
+        try
+        {
+            ProjectFile.Save(creditsRound, creditsPath);
+            LdpProject reloaded = ProjectFile.Load(creditsPath);
+            Check("credits: survive save and reload",
+                  reloaded.Studio == "Studio Ghibli" &&
+                  reloaded.Copyright == "© 1988 Studio Ghibli" &&
+                  reloaded.Url == "https://thetvdb.com/");
+        }
+        finally
+        {
+            try { File.Delete(creditsPath); } catch { /* temp file */ }
+        }
+
         // Date field: valid form required, written into the README.
         Check("date validation", LdpProject.IsValidDate("2026-07-14") &&
               !LdpProject.IsValidDate("2026-7-4") && !LdpProject.IsValidDate("07/14/2026") &&

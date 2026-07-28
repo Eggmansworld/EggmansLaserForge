@@ -268,6 +268,14 @@ public sealed class SingeGen
 
         sb.AppendLine("--[[");
         sb.AppendLine($"PROGRAM NAME:\t\t{_project.Name}");
+        // Source-material credits, next to the title they describe. Optional, so
+        // a header stays clean for an author who leaves them blank.
+        if (!string.IsNullOrWhiteSpace(_project.Studio))
+            sb.AppendLine($"STUDIO:\t\t\t\t{_project.Studio.Trim()}");
+        if (!string.IsNullOrWhiteSpace(_project.Copyright))
+            sb.AppendLine($"COPYRIGHT:\t\t\t{_project.Copyright.Trim()}");
+        if (!string.IsNullOrWhiteSpace(_project.Url))
+            sb.AppendLine($"URL:\t\t\t\t{_project.Url.Trim()}");
         sb.AppendLine($"VERSION:\t\t\t{_project.GameVersion}");
         sb.AppendLine($"DATE:\t\t\t\t{dateText}");
         sb.AppendLine("ENGINE:\t\t\t\tbuilt and tested on the Hypseus Singe v3.x SDL3 engine");
