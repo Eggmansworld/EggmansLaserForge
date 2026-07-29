@@ -3382,7 +3382,8 @@ function drawLCD()      -- Draw LCD (intro)
 			timerON(iLCDwait)
 			iLCDpointer = 1
 			iLCDline = 1
-			iLCDx = ml24 
+			fontSelect(fontLCD)
+			iLCDx = getMiddle(sLCD[iLCDline])
 			altState = lvlRunning
 		
 		elseif altState == lvlRunning then	
@@ -3418,7 +3419,8 @@ function drawLCD()      -- Draw LCD (intro)
 				end
 				
 				iLCDpointer = 1
-				iLCDx = ml24
+				fontSelect(fontLCD)
+				iLCDx = getMiddle(sLCD[iLCDline])
 				timerON(iLCDwait)
 				altState = lvlRunning
 			

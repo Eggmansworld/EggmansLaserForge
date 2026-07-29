@@ -4547,7 +4547,7 @@ function drawCredits()     -- Draw the credits
 				
 				else
 				
-					spriteDraw(posxUIF,ycoinpos,sprite[INSERTCOIN])
+					spriteDraw(posxUII,ycoinpos,sprite[INSERTCOIN])
 				
 				end
 			end
@@ -4717,6 +4717,7 @@ function drawLCD()      -- Draw LCD (intro)
 			timerON(iLCDwait)
 			iLCDpointer = 1
 			iLCDline = 1
+			fontSelect(fontLCD)
 			iLCDx = getMiddle(sLCD[iLCDline])
 			altState = lvlRunning
 		
@@ -4904,7 +4905,7 @@ function drawScore()       -- Draw score
 
 		if bShowTop or bPause then
 
-			spriteDraw(posxUI,LINEH,sprite[TOPSCORE])
+			spriteDraw(posxUIT,LINEH,sprite[TOPSCORE])
 		
 			if dip_GameType == 3 then
 
@@ -5165,6 +5166,8 @@ function getRes()
 	SKIPW = spriteGetWidth(sprite[SKIPINTRO])
 	FREEPW = spriteGetWidth(sprite[FREEPLAY])
 	READYW = spriteGetWidth(sprite[GETREADY])
+	INSW = spriteGetWidth(sprite[INSERTCOIN])
+	TOPW = spriteGetWidth(sprite[TOPSCORE])
 	SCNW = spriteGetWidth(sprite[SCENES])
 	CRDW = spriteGetWidth(sprite[CREDIT])
 	ARUW = spriteGetWidth(sprArrow[UP])
@@ -5181,13 +5184,15 @@ function getRes()
 	spriteUnload(ZERO)
 
 
-	posxBUTTONS = (OVLW/2)-(BUTW/2)								-- Coordinates for the buttons
+	posxBUTTONS = (OVLW/2)-(BUTW/2)		-- Coordinates for the buttons
 	posyBUTTONS = (OVLH/2)-(BUTH/2)
 
 	posxTEXT = (OVLW/2)-(TEXW/2)
 	posxUI = (OVLW/2)-(SKIPW/2)
 	posxUIF = (OVLW/2)-(FREEPW/2)
 	posxUIR = (OVLW/2)-(READYW/2)
+	posxUII = (OVLW/2)-(INSW/2)
+	posxUIT = (OVLW/2)-(TOPW/2)
 
 	posxUDARROWS = (OVLW/2)-(ARUW/2)
 	posyLRARROWS = (OVLH/2)-(ARLH/2)
