@@ -630,10 +630,19 @@ public partial class StoryboardView : UserControl
             .ToList();
     }
 
+    /// <summary>
+    /// The ports a node actually offers. <see cref="PortKind.Timeout"/> is
+    /// deliberately absent: nothing downstream has ever read a timeout edge, so
+    /// the orange port was an invitation to wire something that could not do
+    /// anything. The kind, its brush and its serialization stay put, so a
+    /// project that already holds a timeout edge still loads and still draws —
+    /// <see cref="OutputPortCenter"/> falls back to mid-height for a port that
+    /// isn't listed here. Put the tuple back to bring the port to the surface.
+    /// </summary>
     private static IEnumerable<(PortKind Port, double Fraction)> OutputPorts(StoryNode node) =>
         node.Kind == NodeKind.Start
             ? [(PortKind.Out, 0.5)]
-            : [(PortKind.Success, 0.3), (PortKind.Death, 0.6), (PortKind.Timeout, 0.85)];
+            : [(PortKind.Success, 0.35), (PortKind.Death, 0.65)];
 
     private Ellipse MakePort(StoryNode node, PortKind? outputPort, double x, double y, IBrush? brush)
     {

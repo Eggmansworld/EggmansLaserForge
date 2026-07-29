@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.10-win-x64.zip`**.
+   and download the file named **`EggmansLaserForge-0.1.11-win-x64.zip`**.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`LaserForge.exe`**.
@@ -246,11 +246,10 @@ Open the **🗺 Storyboard** tab. This is a **node graph** — like the flowchar
 in tools such as ComfyUI. Each scene is a box; you draw wires between boxes to
 say *"after this scene, go to that one."*
 
-Every gameplay scene can branch three ways:
+Every gameplay scene branches two ways:
 
 - **Success** — the player did the right thing; continue the story.
 - **Death** — the player failed; play a death and (usually) retry.
-- **Timeout** — the player did nothing in time.
 
 Wire your scenes up to describe the whole game's flow. You can **double-click a
 scene to play it** right there, and **right-click** any node for more options —
