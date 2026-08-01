@@ -54,6 +54,12 @@ public static partial class LuaValues
     /// </summary>
     public static Table Build(string script)
     {
+        // A script saved on Windows ends its lines with CR LF, and CR is neither
+        // space nor tab, so it would sit between the value and the end-of-line
+        // anchor and stop every pattern here from matching. Normalised once at
+        // the door rather than tolerated in each regex.
+        script = script.Replace("\r\n", "\n").Replace('\r', '\n');
+
         Dictionary<string, int> values = [];
         // name -> (base name, delta). Kept in encounter order so a later
         // assignment to the same name overwrites an earlier one either way.

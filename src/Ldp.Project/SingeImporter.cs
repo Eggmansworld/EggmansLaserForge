@@ -47,19 +47,32 @@ public static partial class SingeImporter
     [GeneratedRegex(@"\{\s*""([^""]*)""\s*,\s*""([^""]*)""\s*\}")]
     private static partial Regex LangEntryPattern();
 
-    [GeneratedRegex(@"^\s*dofile\s*\(\s*(?:BASEDIR|MYDIR)\s*\.\.\s*""/(\w+)/globals\.singe""", RegexOptions.Multiline)]
+    /// <summary>
+    /// Leading run is [ \t] rather than \s on purpose: \s matches newlines, so
+    /// the match could start on the blank line above and its index would not be
+    /// the start of the dofile's own line — which the comment check below relies
+    /// on to read what precedes it.
+    /// </summary>
+    [GeneratedRegex(@"^[ \t]*dofile\s*\(\s*(?:BASEDIR|MYDIR)\s*\.\.\s*""/(\w+)/globals\.singe""", RegexOptions.Multiline)]
     private static partial Regex FrameworkDofilePattern();
 
     /// <summary>Imports script content into the project (which should already contain its videos).</summary>
     public static Result Import(LdpProject project, string scriptText)
     {
+        // Community scripts are edited on every platform, and half the patterns
+        // below anchor to end of line. CR is neither space nor tab, so on a
+        // Windows-saved script it would sit between the value and the anchor and
+        // silently stop those patterns matching — a whole script importing as
+        // empty, with nothing to say why. Normalised once, here.
+        scriptText = scriptText.Replace("\r\n", "\n").Replace('\r', '\n');
+
         List<string> warnings = [];
 
         // ---- Framework choice (from the first non-commented dofile) ----
         foreach (Match m in FrameworkDofilePattern().Matches(scriptText))
         {
             // Skip commented-out alternatives (e.g. the Kimmy suggestion line).
-            int lineStart = scriptText.LastIndexOf('\n', m.Index) + 1;
+            int lineStart = Math.Min(scriptText.LastIndexOf('\n', m.Index) + 1, m.Index);
             string before = scriptText[lineStart..m.Index];
             if (before.Contains("--")) continue;
             project.Framework = m.Groups[1].Value switch

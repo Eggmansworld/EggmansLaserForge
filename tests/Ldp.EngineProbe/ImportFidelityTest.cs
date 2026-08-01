@@ -86,6 +86,24 @@ public static class ImportFidelityTest
         Check("lua: inline literal", LuaValues.Resolve("1234", t) == 1234);
         Check("lua: inline expression", LuaValues.Resolve("offsetMenus +12", t) == 49678);
         Check("lua: inline unknown name is null", LuaValues.Resolve("offsetNope + 1", t) == null);
+
+        // A script saved on Windows. CR is neither space nor tab, so before this
+        // was handled it sat between the value and the end-of-line anchor and
+        // every one of these patterns quietly stopped matching — the failure mode
+        // being a script that imports as empty rather than one that errors.
+        LuaValues.Table crlf = LuaValues.Build(script.Replace("\n", "\r\n"));
+        Check("lua: CRLF script resolves its landmark",
+              crlf.TryGet("offsetMenus", out int cm2) && cm2 == 49666);
+        Check("lua: CRLF script resolves derived values",
+              crlf.TryGet("frameControls", out int cc2) && cc2 == 49693);
+        Check("lua: CRLF and LF agree exactly",
+              crlf.Values.Count == t.Values.Count &&
+              crlf.Values.All(kv => t.TryGet(kv.Key, out int lf) && lf == kv.Value));
+
+        // Old Mac line endings cost nothing extra to cover once normalising.
+        LuaValues.Table cr = LuaValues.Build(script.Replace("\n", "\r"));
+        Check("lua: lone CR line endings resolve",
+              cr.TryGet("frameVictory", out int cv) && cv == 49669);
     }
 
     private static void IntroChecks(Action<string, bool> Check)
@@ -220,5 +238,20 @@ public static class ImportFidelityTest
               relProject.Levels[0].IntroEndFrame == 21775);
         Check("import: RelativeFrames is called out",
               rel.Warnings.Any(w => w.Contains("RelativeFrames")));
+
+        // The whole importer against a Windows-saved script. This is the check
+        // that would have caught the anchor bug: the reference script on disk is
+        // LF, so nothing here exercised CRLF until a git checkout converted the
+        // test file itself and fourteen checks went red at once.
+        var crlfProject = new LdpProject { Name = "CrlfScript" };
+        SingeImporter.Result crlfResult = SingeImporter.Import(crlfProject, script.Replace("\n", "\r\n"));
+        Check("import: a CRLF script reads both levels", crlfResult.Levels == 2);
+        Check("import: a CRLF script reads its scenes and moves",
+              crlfProject.Clips.Count == project.Clips.Count &&
+              crlfProject.Clips.Sum(c => c.Interactions.Count) == project.Clips.Sum(c => c.Interactions.Count));
+        Check("import: a CRLF script resolves its menu offsets",
+              crlfProject.Slots.Stills.ContainsValue(49666));
+        Check("import: a CRLF script corrects the bogus intro too",
+              crlfProject.Levels[1].IntroEndFrame == 5001);
     }
 }
