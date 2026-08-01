@@ -221,9 +221,10 @@ first, then use the **INTERACTIONS** buttons on the right, or the keyboard:
 
 | Move | Button | Key |
 |---|---|---|
-| Up / Down / Left / Right | ↑ ↓ ← → | **U / D / L / R** |
-| Action button 1 / 2 | 🅐 🅑 | **1 / 2** |
-| Skip (any input skips a passage) | ⏭ | **S** |
+| Up / Down / Left / Right | ↑ ↓ ← → | **W / S / A / D** |
+| Action button 1 / 2 | 🅐 🅑 | **Q / E** |
+| Skip Start (any input skips a passage) | ⏭ | **Z** |
+| Skip End (if not end of scene, frame to end on) | ⤵ | **C** |
 
 Each move is placed **at the current frame**, so jog to the exact moment the
 player should react, then press the key. The app gives each move a **timing
