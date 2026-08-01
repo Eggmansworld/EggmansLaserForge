@@ -493,6 +493,8 @@ public sealed class Clip
             DeathClipId = m.DeathClipId,
             ExplicitNoDeath = m.ExplicitNoDeath,
             AltInput = m.AltInput,
+            RawInput = m.RawInput,
+            RawAltInput = m.RawAltInput,
             Note = m.Note,
         }).ToList(),
     };

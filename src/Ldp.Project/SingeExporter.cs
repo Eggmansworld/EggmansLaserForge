@@ -92,8 +92,24 @@ public static class SingeExporter
         InputKind.Button1 => "BUTTON1",
         InputKind.Button2 => "BUTTON2",
         InputKind.Skip => "SKIP",
-        _ => "WAY",
+        // Double and hold moves carry their own token.
+        _ => MoveTokens.TokenOf(input) ?? "WAY",
     };
+
+    /// <summary>
+    /// The token for a move, preferring the script's own wording when the move
+    /// is one the editor does not model. Without this an imported MASHMAX would
+    /// come back out as WAY — the enum's fallback — quietly turning a mash into
+    /// "any direction".
+    /// </summary>
+    public static string InputToken(InteractionMarker move) =>
+        move.RawInput is { Length: > 0 } raw ? raw : InputToken(move.Input);
+
+    /// <summary>The alternate input's token, or null when the move has none.</summary>
+    public static string? AltInputToken(InteractionMarker move) =>
+        move.RawAltInput is { Length: > 0 } raw ? raw
+        : move.AltInput is { } alt ? InputToken(alt)
+        : null;
 }
 
 /// <summary>
@@ -249,12 +265,13 @@ public sealed class SingeGen
         int sceneCount = _project.Levels.Sum(l => l.SceneIds.Count);
         int moveCount = _project.Levels.SelectMany(l => l.SceneIds)
             .Sum(id => SceneById(id)?.Interactions.Count ?? 0);
+        // Tokens rather than kinds, so an advanced move is listed as what the
+        // script actually says instead of collapsing into the enum's fallback.
         List<string> inputsUsed = _project.Levels.SelectMany(l => l.SceneIds)
             .SelectMany(id => SceneById(id)?.Interactions ?? [])
-            .Select(m => m.Input)
-            .Distinct()
-            .OrderBy(i => i)
             .Select(SingeExporter.InputToken)
+            .Distinct()
+            .OrderBy(t => t, StringComparer.Ordinal)
             .ToList();
 
         if (string.IsNullOrWhiteSpace(_project.Author))
@@ -424,8 +441,8 @@ public sealed class SingeGen
                     if (death == 0 && move.Input != InputKind.Skip && !move.ExplicitNoDeath)
                         _warnings.Add($"'{scene.Name}' move at {move.Frame} has no death scene " +
                                       "(assign one to the move or wire the scene's Death port)");
-                    string alt = move.AltInput is { } a ? $", {SingeExporter.InputToken(a)}" : "";
-                    sb.AppendLine($"\t\t\tmove[{n + 1}] = {{{move.Frame}, {end}, {SingeExporter.InputToken(move.Input)}, {death}{alt}}}");
+                    string alt = SingeExporter.AltInputToken(move) is { } a ? $", {a}" : "";
+                    sb.AppendLine($"\t\t\tmove[{n + 1}] = {{{move.Frame}, {end}, {SingeExporter.InputToken(move)}, {death}{alt}}}");
                 }
                 sb.AppendLine();
             }

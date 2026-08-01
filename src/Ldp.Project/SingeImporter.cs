@@ -187,6 +187,10 @@ public static partial class SingeImporter
         int currentScene = 0;
         Clip? scene = null;
         int sceneCount = 0, moveCount = 0;
+        // Advanced tokens actually met, so the report names what this game uses
+        // rather than reciting the whole vocabulary.
+        var advancedUsed = new SortedSet<string>(StringComparer.Ordinal);
+        var doubleUsed = new SortedSet<string>(StringComparer.Ordinal);
 
         foreach (string rawLine in body.Split('\n'))
         {
@@ -240,18 +244,23 @@ public static partial class SingeImporter
                     warnings.Add($"L{currentLevel} S{currentScene}: unknown input '{token}' at frame {start} - skipped");
                     continue;
                 }
+                if (input == InputKind.Advanced) advancedUsed.Add(token.Trim().ToUpperInvariant());
+                else if (MoveTokens.TokenOf(input) is { } modelled) doubleUsed.Add(modelled);
                 InputKind? alt = null;
                 if (altToken != null)
                 {
                     if (TryParseInput(altToken, out InputKind parsedAlt)) alt = parsedAlt;
                     else warnings.Add($"L{currentLevel} S{currentScene}: unknown alt input '{altToken}' at frame {start} - ignored");
+                    if (alt == InputKind.Advanced) advancedUsed.Add(altToken.Trim().ToUpperInvariant());
                 }
 
                 var marker = new InteractionMarker
                 {
                     Frame = start,
                     Input = input,
+                    RawInput = input == InputKind.Advanced ? token.Trim().ToUpperInvariant() : null,
                     AltInput = alt,
+                    RawAltInput = alt == InputKind.Advanced ? altToken!.Trim().ToUpperInvariant() : null,
                     DeathClipId = deathIndex > 0 && deathScenes.TryGetValue(deathIndex, out Guid deathId) ? deathId : null,
                     // Death# 0 on a normal move is a deliberate authoring choice
                     // (the scene itself shows the failure); preserve it.
@@ -275,6 +284,22 @@ public static partial class SingeImporter
                 // latent bugs this importer exists to surface.
                 warnings.Add($"L{currentLevel} S{currentScene}: malformed move line skipped: {line.Trim()}");
             }
+        }
+
+        // ---- Advanced move report ----
+        // Named per token, in the log, rather than behind a modal: everything
+        // here still exports exactly as it came in, so nothing is blocking. What
+        // an author needs is to know which moves the editor cannot yet author,
+        // and — for the double moves — that they take two inputs at once.
+        if (doubleUsed.Count > 0)
+            warnings.Add("Two-input moves in this game: " + Describe(doubleUsed) +
+                         ". Each needs both inputs held together — two keys at once on a keyboard, " +
+                         "no gamepad required. They import and export normally.");
+        foreach (string token in advancedUsed)
+        {
+            MoveTokens.Info? info = MoveTokens.Find(token);
+            warnings.Add($"'{token}' ({info?.Display ?? "advanced move"}) is kept exactly as written but " +
+                         $"cannot be edited here yet — {info?.Note ?? "carried through untouched"}.");
         }
 
         // A script that sets RelativeFrames makes a level's start frame the base
@@ -312,6 +337,10 @@ public static partial class SingeImporter
         return new Result(levelDefs.Count, sceneCount, moveCount, deaths, slotsFilled, warnings);
     }
 
+    /// <summary>Friendly names for a set of tokens, e.g. "Up + Left, Button 1 + Up".</summary>
+    private static string Describe(IEnumerable<string> tokens) =>
+        string.Join(", ", tokens.Select(t => MoveTokens.Find(t)?.Display ?? t));
+
     private static bool TryParseInput(string token, out InputKind input)
     {
         switch (token.ToUpperInvariant())
@@ -324,7 +353,16 @@ public static partial class SingeImporter
             case "BUTTON2": input = InputKind.Button2; return true;
             case "SKIP": input = InputKind.Skip; return true;
             case "WAY": input = InputKind.AnyDirection; return true;
-            default: input = default; return false;
+            default:
+                // Double and hold moves are modelled outright; everything else
+                // the frameworks define is carried as Advanced with its token
+                // kept. Either way the move survives the round trip — dropping
+                // it, which is what used to happen, loses the author's work
+                // while still producing a game that looks like it exported.
+                if (MoveTokens.KindOf(token) is { } known) { input = known; return true; }
+                if (MoveTokens.IsKnown(token)) { input = InputKind.Advanced; return true; }
+                input = default;
+                return false;
         }
     }
 

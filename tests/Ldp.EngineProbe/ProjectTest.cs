@@ -180,6 +180,7 @@ public static class ProjectTest
             StillImageTest.Run(Check);
             LevelCfgFilesTest.Run(Check);
             ImportFidelityTest.Run(Check);
+            MoveTokensTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1163,6 +1164,7 @@ public static class ProjectTest
 
         // ---- Per-level Cfg files grown to the level count ----
         ImportFidelityTest.Run(Check);
+        MoveTokensTest.Run(Check);
 
         LevelCfgFilesTest.Run(Check);
 

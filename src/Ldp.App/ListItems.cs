@@ -56,7 +56,7 @@ public sealed class InteractionItem : System.ComponentModel.INotifyPropertyChang
     public string Display =>
         $"{(_active ? "▶ " : Warn ? "⚠ " : "")}{Marker.Frame.ToString().PadLeft(6, '0')}" +
         (Marker.EndFrameOverride is { } end ? $"–{end.ToString().PadLeft(6, '0')}" : "") +
-        $"  {Glyph(Marker.Input)} {Marker.Input}";
+        $"  {Glyph(Marker.Input)} {Label(Marker)}";
 
     public Avalonia.Media.IBrush Brush =>
         _active ? ActiveBrush : _upcoming ? UpcomingBrush : Warn ? WarnBrush : NormalBrush;
@@ -73,6 +73,17 @@ public sealed class InteractionItem : System.ComponentModel.INotifyPropertyChang
         PropertyChanged?.Invoke(this, new(nameof(Display)));
     }
 
+    /// <summary>
+    /// What the row calls a move. An Advanced move is one the editor carries
+    /// through without modelling, so it is named by the script's own token —
+    /// "MASHMAX" tells an author something; the enum's name, "Advanced", does
+    /// not.
+    /// </summary>
+    public static string Label(InteractionMarker marker) =>
+        marker.Input == InputKind.Advanced && marker.RawInput is { Length: > 0 } raw
+            ? raw
+            : MoveTokens.Find(MoveTokens.TokenOf(marker.Input) ?? "")?.Display ?? marker.Input.ToString();
+
     public static string Glyph(InputKind input) => input switch
     {
         InputKind.Up => "↑",
@@ -82,6 +93,27 @@ public sealed class InteractionItem : System.ComponentModel.INotifyPropertyChang
         InputKind.Button1 => "🅐",
         InputKind.Button2 => "🅑",
         InputKind.AnyDirection => "✛",
+
+        // Two inputs at once: a diagonal reads as one, a button-plus-direction
+        // as the button glyph next to its arrow.
+        InputKind.UpLeft => "↖",
+        InputKind.UpRight => "↗",
+        InputKind.DownLeft => "↙",
+        InputKind.DownRight => "↘",
+        InputKind.ActUp => "🅐↑",
+        InputKind.ActDown => "🅐↓",
+        InputKind.ActLeft => "🅐←",
+        InputKind.ActRight => "🅐→",
+
+        // Held inputs take the doubled arrow, so a hold never reads as a tap.
+        InputKind.HoldUp => "⇑",
+        InputKind.HoldDown => "⇓",
+        InputKind.HoldLeft => "⇐",
+        InputKind.HoldRight => "⇒",
+        InputKind.HoldButton => "🅐⇓",
+        InputKind.LetGo => "◌",
+
+        InputKind.Advanced => "⚙",
         _ => "⏭",
     };
 }

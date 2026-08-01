@@ -24,6 +24,32 @@ public enum InputKind
 
     /// <summary>Any joystick direction (the WAY token in Standard Framework scripts).</summary>
     AnyDirection,
+
+    // ---- Double moves: two inputs held at once ----
+    // The framework groups these itself (main.singe:3012, ">= UPLEFT and
+    // <= ACTRIGHT -- Double moves") and tests them as two concurrent held
+    // states: UPLEFT is `p1UP and p1LEFT`, ACTUP is `p1BUTTON1 and p1UP`.
+    // Hypseus sets those states from any bound control, keyboard included, so
+    // none of these needs a thumbstick — only two keys at the same time.
+    UpLeft, UpRight, DownLeft, DownRight,
+    ActUp, ActDown, ActLeft, ActRight,
+
+    // ---- Hold, then release ----
+    // These come in pairs. The framework reads the move AFTER a hold expecting
+    // LETGO (main.singe:2296, 2360, 2499) and rewinds by stepping currentMove-2,
+    // so a hold without a LetGo following it is a broken script.
+    HoldUp, HoldDown, HoldLeft, HoldRight, HoldButton,
+
+    /// <summary>Release of the hold immediately preceding it. Never stands alone.</summary>
+    LetGo,
+
+    /// <summary>
+    /// A framework move this app does not model — mash and run rates, and the
+    /// multi-move branch constructs (CHOOSE, PATH, YESNO, TIMED). The script's
+    /// own token is kept in <see cref="InteractionMarker.RawInput"/> and written
+    /// back untouched, so importing a game that uses them never loses a move.
+    /// </summary>
+    Advanced,
 }
 
 /// <summary>
@@ -61,10 +87,26 @@ public sealed class InteractionMarker
     public bool ExplicitNoDeath { get; set; }
 
     /// <summary>
+    /// The script's own token when <see cref="Input"/> is
+    /// <see cref="InputKind.Advanced"/>, e.g. "MASHMAX" or "CHOOSE". Written
+    /// back verbatim on export.
+    ///
+    /// A move whose token this app cannot name used to be dropped on import
+    /// with a log line, which is silent data loss dressed up as a warning:
+    /// the game still exported, just missing moves. Keeping the token costs
+    /// nothing and makes an import/export round trip lossless even for moves
+    /// the editor has no way to author yet.
+    /// </summary>
+    public string? RawInput { get; set; }
+
+    /// <summary>
     /// Optional alternate accepted input (the 5th move element in Standard
     /// Framework scripts, e.g. move = {s, e, UP, 3, BUTTON1}).
     /// </summary>
     public InputKind? AltInput { get; set; }
+
+    /// <summary>The alternate input's own token, when it is an unmodelled one.</summary>
+    public string? RawAltInput { get; set; }
 
     public string? Note { get; set; }
 
