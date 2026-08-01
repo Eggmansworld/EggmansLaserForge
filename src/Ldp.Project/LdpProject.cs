@@ -127,6 +127,69 @@ public sealed class LdpProject
     /// </summary>
     public List<Guid> DeathPool { get; set; } = [];
 
+    /// <summary>
+    /// Every scene the exported game reaches by dying, in the order they take
+    /// their Death[n] numbers.
+    ///
+    /// This is the one definition. It used to be written out three times and
+    /// the three disagreed: the exporter counted the pool, per-move deaths and
+    /// Death-wire targets; the storyboard's DEATH chip skipped per-move deaths;
+    /// and the scenes list's Deaths filter counted ONLY per-move deaths, so it
+    /// matched nothing at all in a project built here rather than imported.
+    ///
+    /// Order matters and is not cosmetic — Death[n] numbers are referenced by
+    /// every move that uses one, so the curated pool keeps its imported
+    /// positions and anything discovered later is appended.
+    /// </summary>
+    public List<Guid> DeathScenes()
+    {
+        List<Guid> order = [];
+        HashSet<Guid> seen = [];
+        void Note(Guid id)
+        {
+            if (ClipById(id) != null && seen.Add(id)) order.Add(id);
+        }
+
+        foreach (Guid id in DeathPool) Note(id);
+        foreach (Clip clip in Clips)
+            foreach (InteractionMarker move in clip.Interactions)
+                if (move.DeathClipId is { } d) Note(d);
+        foreach (StoryEdge edge in Graph.Edges.Where(e => e.FromPort == PortKind.Death))
+            if (Graph.NodeById(edge.ToNode)?.ClipId is { } id) Note(id);
+
+        return order;
+    }
+
+    /// <summary>
+    /// Where each death scene sits in <see cref="DeathScenes"/>, 1-based — the
+    /// number the script writes into a move's death slot.
+    /// </summary>
+    public Dictionary<Guid, int> DeathNumbers()
+    {
+        List<Guid> order = DeathScenes();
+        Dictionary<Guid, int> numbers = [];
+        for (int i = 0; i < order.Count; i++) numbers[order[i]] = i + 1;
+        return numbers;
+    }
+
+    /// <summary>
+    /// The death a scene falls back on when a move doesn't name one: the scene's
+    /// own Death wire first, then its level's fallback. Null when neither is set.
+    /// </summary>
+    public Guid? DefaultDeathFor(Guid sceneId)
+    {
+        StoryNode? node = Graph.Nodes.FirstOrDefault(n => n.ClipId == sceneId);
+        if (node != null)
+        {
+            StoryEdge? wire = Graph.Edges
+                .FirstOrDefault(e => e.FromNode == node.Id && e.FromPort == PortKind.Death);
+            if (wire != null && Graph.NodeById(wire.ToNode)?.ClipId is { } wired) return wired;
+        }
+        return Levels.FirstOrDefault(l => l.SceneIds.Contains(sceneId))?.DefaultDeathClipId;
+    }
+
+    public Clip? ClipById(Guid id) => Clips.FirstOrDefault(c => c.Id == id);
+
     /// <summary>Framework slot assignments (attract videos, menus, system videos).</summary>
     public GameSlots Slots { get; set; } = new();
 
@@ -393,6 +456,13 @@ public sealed class GameLevel
 
     /// <summary>Frame offset of mirrored death videos (0 = none).</summary>
     public int DeathMirror { get; set; }
+
+    /// <summary>
+    /// Death used by this level's scenes when a scene has no Death wire of its
+    /// own and a move names none. A scene's own wire always wins — this only
+    /// saves wiring the same death to every scene in a level.
+    /// </summary>
+    public Guid? DefaultDeathClipId { get; set; }
 
     /// <summary>
     /// Death behavior: -1 replay until passed, 0 skip on death, 1 replay once,

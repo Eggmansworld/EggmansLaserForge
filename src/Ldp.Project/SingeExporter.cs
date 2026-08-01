@@ -147,37 +147,18 @@ public sealed class SingeGen
 
     private void CollectDeaths()
     {
-        void Note(Guid id)
-        {
-            if (!_deathOrder.Contains(id)) _deathOrder.Add(id);
-        }
-
-        // The curated pool comes first, in its original Death[] order - this
-        // keeps exported numbering identical to the imported script and
-        // retains spare deaths no move references yet.
-        foreach (Guid id in _project.DeathPool)
-            if (SceneById(id) != null) Note(id);
-
-        foreach (GameLevel level in _project.Levels)
-            foreach (Guid sceneId in level.SceneIds)
-                foreach (InteractionMarker move in SceneById(sceneId)?.Interactions ?? [])
-                    if (move.DeathClipId is { } d) Note(d);
-        foreach (StoryEdge edge in _project.Graph.Edges.Where(e => e.FromPort == PortKind.Death))
-        {
-            StoryNode? target = _project.Graph.NodeById(edge.ToNode);
-            if (target?.ClipId is { } clipId) Note(clipId);
-        }
+        // One definition, shared with the storyboard's DEATH chip and the scenes
+        // list's Deaths filter. The curated pool keeps its imported positions so
+        // exported Death[n] numbering matches the script it came from.
+        _deathOrder.AddRange(_project.DeathScenes());
         for (int i = 0; i < _deathOrder.Count; i++) _deathIndex[_deathOrder[i]] = i + 1;
 
-        foreach (StoryNode node in _project.Graph.Nodes.Where(n => n.ClipId != null))
-        {
-            StoryEdge? deathEdge = _project.Graph.Edges
-                .FirstOrDefault(e => e.FromNode == node.Id && e.FromPort == PortKind.Death);
-            if (deathEdge != null &&
-                _project.Graph.NodeById(deathEdge.ToNode)?.ClipId is { } deathClip &&
-                _deathIndex.TryGetValue(deathClip, out int index))
-                _sceneDefaultDeath[node.ClipId!.Value] = index;
-        }
+        // What a move inherits when it names no death of its own: the scene's
+        // Death wire, else the level's fallback.
+        foreach (Clip scene in _project.Clips)
+            if (_project.DefaultDeathFor(scene.Id) is { } fallback &&
+                _deathIndex.TryGetValue(fallback, out int index))
+                _sceneDefaultDeath[scene.Id] = index;
     }
 
     public static string RangeEndName(SlotCatalog.RangeInfo info) =>

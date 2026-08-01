@@ -423,11 +423,10 @@ public partial class StoryboardView : UserControl
         _levelPositions = _project.LevelPositions();
         _chainClips = _project.Graph.SuccessPathClips().ToHashSet();
 
-        // Scenes the game only reaches by dying: the curated pool plus anything
-        // wired from a Death port. They belong to no level by design.
-        _deathClips = [.. _project.DeathPool];
-        foreach (StoryEdge edge in _project.Graph.Edges.Where(e => e.FromPort == PortKind.Death))
-            if (_project.Graph.NodeById(edge.ToNode)?.ClipId is { } id) _deathClips.Add(id);
+        // Scenes the game only reaches by dying. Shared with the exporter and
+        // the scenes filter, so the DEATH chip marks exactly what lands in the
+        // script's Death[] table — this used to miss per-move deaths.
+        _deathClips = [.. _project.DeathScenes()];
     }
 
     /// <summary>

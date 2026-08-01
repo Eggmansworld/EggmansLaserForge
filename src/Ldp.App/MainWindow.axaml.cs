@@ -2611,6 +2611,77 @@ public partial class MainWindow : Window
     {
         DeleteInteractionButton.IsEnabled = InteractionList.SelectedItem is InteractionItem;
         SetSkipEndButton.IsEnabled = InteractionList.SelectedItem is InteractionItem { Marker.Input: InputKind.Skip };
+        RefreshMoveDeathCombo();
+    }
+
+    /// <summary>One entry in the per-move death picker.</summary>
+    private sealed record DeathChoice(string Label, Guid? Clip, bool NoDeath)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>Blocks the rebuild's own selection from being read as an edit.</summary>
+    private bool _fillingMoveDeath;
+
+    /// <summary>
+    /// Rebuilds the death picker for the selected move. Three states, matching
+    /// what the exporter already resolves: inherit the scene's default, an
+    /// explicit no-death (Death# 0, which is a real authoring choice when the
+    /// footage itself shows the failure), or one named death.
+    /// </summary>
+    private void RefreshMoveDeathCombo()
+    {
+        if (_project == null || InteractionList.SelectedItem is not InteractionItem item)
+        {
+            _fillingMoveDeath = true;
+            MoveDeathRow.IsEnabled = false;
+            MoveDeathCombo.ItemsSource = null;
+            _fillingMoveDeath = false;
+            return;
+        }
+
+        InteractionMarker move = item.Marker;
+        Clip? scene = SelectedClip;
+
+        // What "Default" would actually play, so the choice is readable rather
+        // than a word that means "something you can't see from here".
+        string inherited = scene != null && _project.DefaultDeathFor(scene.Id) is { } fallback
+            ? _project.ClipById(fallback)?.Name ?? "a death"
+            : "none set";
+
+        List<DeathChoice> choices = [
+            new($"Default — {inherited}", null, false),
+            new("No death (the scene shows the failure)", null, true),
+        ];
+
+        Dictionary<Guid, int> numbers = _project.DeathNumbers();
+        foreach (Guid id in _project.DeathScenes())
+            choices.Add(new($"{numbers[id]} · {_project.ClipById(id)?.Name ?? "(missing scene)"}", id, false));
+
+        _fillingMoveDeath = true;
+        MoveDeathCombo.ItemsSource = choices;
+        MoveDeathCombo.SelectedIndex = move.DeathClipId is { } picked
+            ? Math.Max(0, choices.FindIndex(c => c.Clip == picked))
+            : move.ExplicitNoDeath ? 1 : 0;
+        // A skip never dies, so the framework writes 0 for it regardless.
+        MoveDeathRow.IsEnabled = move.Input != InputKind.Skip;
+        _fillingMoveDeath = false;
+    }
+
+    private void OnMoveDeathChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_fillingMoveDeath || _project == null) return;
+        if (InteractionList.SelectedItem is not InteractionItem item) return;
+        if (MoveDeathCombo.SelectedItem is not DeathChoice choice) return;
+
+        InteractionMarker move = item.Marker;
+        if (move.DeathClipId == choice.Clip && move.ExplicitNoDeath == choice.NoDeath) return;
+
+        move.DeathClipId = choice.Clip;
+        move.ExplicitNoDeath = choice.NoDeath;
+
+        if (SelectedClip is { } clip)
+            AfterInteractionChange(clip, $"Death for the move at {move.Frame}: {choice.Label}");
     }
 
     private void OnSetSkipEnd(object? sender, RoutedEventArgs e)
@@ -3007,10 +3078,10 @@ public partial class MainWindow : Window
     {
         if (_project == null) return [];
 
-        HashSet<Guid> deaths = [];
-        foreach (Clip c in _project.Clips)
-            foreach (InteractionMarker m in c.Interactions)
-                if (m.DeathClipId is { } id) deaths.Add(id);
+        // The same set the exporter numbers into Death[] and the storyboard
+        // chips. This counted only per-move deaths before, which nothing could
+        // set, so the chip matched nothing outside an imported project.
+        HashSet<Guid> deaths = [.. _project.DeathScenes()];
 
         string text = (SceneFilterBox.Text ?? "").Trim();
         IEnumerable<Clip> clips = _project.Clips;

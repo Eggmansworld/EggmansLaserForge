@@ -358,6 +358,14 @@
                     <ComboBox Name="AdvancedMoveCombo" HorizontalAlignment="Stretch" Focusable="False"
                               SelectionChanged="OnAddAdvancedMove"
                               ToolTip.Tip="Two inputs held together, or a hold and release. All work on a keyboard — no gamepad needed."/>
+                    <!-- Acts on the selected move, like ⤵ End above. -->
+                    <Grid ColumnDefinitions="Auto,*" IsEnabled="False" Name="MoveDeathRow">
+                        <TextBlock Text="Death" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{DynamicResource FgFaint}" Margin="2,0,6,0"/>
+                        <ComboBox Grid.Column="1" Name="MoveDeathCombo" HorizontalAlignment="Stretch"
+                                  Focusable="False" SelectionChanged="OnMoveDeathChanged"
+                                  ToolTip.Tip="Death scene for the selected move. Leave on Default to use the scene's Death wire, or the level's fallback."/>
+                    </Grid>
                     </StackPanel>
                     <ListBox Grid.Row="5" Name="InteractionList" Background="Transparent" Focusable="False"
                              SelectionChanged="OnInteractionSelected" DoubleTapped="OnGotoInteraction">

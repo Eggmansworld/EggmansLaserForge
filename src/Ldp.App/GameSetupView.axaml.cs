@@ -149,6 +149,9 @@ public partial class GameSetupView : UserControl
         AddHeader("LEVELS (the play order the framework runs)");
         SlotsPanel.Children.Add(LevelsBlock());
 
+        AddHeader("DEATHS (the script's Death[] table)");
+        SlotsPanel.Children.Add(DeathsBlock());
+
         AddHeader("SCORING (leave blank to keep the shown default)");
         foreach (ScoringCatalog.Entry entry in ScoringCatalog.Entries)
             SlotsPanel.Children.Add(ScoringRow(entry));
@@ -229,6 +232,162 @@ public partial class GameSetupView : UserControl
     /// already multi-selects), so this panel owns structure — order, titles,
     /// intros — rather than picking.
     /// </summary>
+    /// <summary>
+    /// The game's Death[] table, in the order the script numbers it.
+    ///
+    /// Most deaths arrive by wiring a scene to a storyboard Death port and never
+    /// need touching here. This exists for the two things a wire cannot express:
+    /// keeping a spare death no move points at yet, and fixing the ORDER —
+    /// Death[n] numbers are what moves reference, so shuffling them renumbers
+    /// every reference in the exported script.
+    /// </summary>
+    private Control DeathsBlock()
+    {
+        var panel = new StackPanel { Spacing = 6 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Scenes the game reaches by dying, numbered as the script's Death[] table. " +
+                   "Wiring a scene to a storyboard Death port adds it here automatically; add one " +
+                   "by hand to keep a spare that no move points at yet.",
+            Foreground = (IBrush?)this.FindResource("FgFaint"),
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        List<Guid> order = _project!.DeathScenes();
+
+        // Only pooled entries can be reordered or removed here — one that exists
+        // because a wire or a move points at it would just come straight back.
+        var rows = new List<Control>();
+        for (int i = 0; i < order.Count; i++)
+        {
+            Guid id = order[i];
+            Clip? scene = _project.ClipById(id);
+            bool pooled = _project.DeathPool.Contains(id);
+            int index = _project.DeathPool.IndexOf(id);
+
+            var grid = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions($"34,{ThumbWidth + 10},*,Auto"),
+                Margin = new Thickness(0, 1),
+            };
+
+            var number = new TextBlock
+            {
+                Text = (i + 1).ToString(),
+                Foreground = (IBrush?)this.FindResource("FrameText"),
+                FontFamily = new FontFamily("Consolas,monospace"),
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0),
+            };
+            grid.Children.Add(number);
+
+            // scene first: DeathScenes() drops ids with no clip, but the guard
+            // has to be the condition, not an afterthought — the old order
+            // handed a null clip to the thumbnail provider before checking.
+            if (scene != null && SceneThumbnail?.Invoke(scene) is { } picture)
+            {
+                var image = new Image
+                {
+                    Source = picture,
+                    Width = ThumbWidth,
+                    Height = 36,
+                    Stretch = Stretch.UniformToFill,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                Grid.SetColumn(image, 1);
+                grid.Children.Add(image);
+            }
+
+            var name = new TextBlock
+            {
+                Text = scene?.Name ?? "(missing scene)",
+                Foreground = (IBrush?)this.FindResource(scene == null ? "AccentAmber" : "FgPrimary"),
+                FontSize = 13,
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            ToolTip.SetTip(name, pooled
+                ? "Kept in the death list by hand."
+                : "Here because a storyboard Death wire or a move points at it.");
+            Grid.SetColumn(name, 2);
+            grid.Children.Add(name);
+
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+            if (pooled)
+            {
+                var up = new Button { Content = "▲", Focusable = false, Width = 28, IsEnabled = index > 0 };
+                up.Click += (_, _) => MoveInPool(index, -1);
+                var down = new Button
+                {
+                    Content = "▼", Focusable = false, Width = 28,
+                    IsEnabled = index >= 0 && index < _project.DeathPool.Count - 1,
+                };
+                down.Click += (_, _) => MoveInPool(index, +1);
+                var drop = new Button { Content = "✕", Focusable = false, Width = 28 };
+                ToolTip.SetTip(drop, "Take out of the death list. A wire or move pointing at it puts it back.");
+                drop.Click += (_, _) => { _project.DeathPool.Remove(id); Commit(); };
+                buttons.Children.Add(up);
+                buttons.Children.Add(down);
+                buttons.Children.Add(drop);
+            }
+            else
+            {
+                buttons.Children.Add(new TextBlock
+                {
+                    Text = "auto",
+                    Foreground = (IBrush?)this.FindResource("FgFaint"),
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0),
+                });
+            }
+            Grid.SetColumn(buttons, 3);
+            grid.Children.Add(buttons);
+
+            rows.Add(new Border { Classes = { "slotrow" }, Child = grid });
+        }
+
+        if (rows.Count == 0)
+            panel.Children.Add(Notice(
+                "No death scenes yet. Wire a scene to a storyboard Death port, or add one below.",
+                "FgFaint"));
+        else
+            foreach (Control row in rows) panel.Children.Add(row);
+
+        // Adding by hand: anything not already a death.
+        List<Clip> candidates = _project.Clips.Where(c => !order.Contains(c.Id)).ToList();
+        var add = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Focusable = false,
+            PlaceholderText = candidates.Count > 0
+                ? "＋ Add a scene as a death…"
+                : "(every scene is already a death)",
+            IsEnabled = candidates.Count > 0,
+            ItemsSource = candidates.Select(c => c.Name).ToList(),
+        };
+        add.SelectionChanged += (_, _) =>
+        {
+            if (add.SelectedIndex < 0 || add.SelectedIndex >= candidates.Count) return;
+            _project.DeathPool.Add(candidates[add.SelectedIndex].Id);
+            Commit();
+        };
+        panel.Children.Add(add);
+
+        return panel;
+    }
+
+    private void MoveInPool(int index, int direction)
+    {
+        int target = index + direction;
+        if (_project == null || index < 0 || target < 0 || target >= _project.DeathPool.Count) return;
+        (_project.DeathPool[index], _project.DeathPool[target]) =
+            (_project.DeathPool[target], _project.DeathPool[index]);
+        Commit();
+    }
+
     private Control LevelsBlock()
     {
         var panel = new StackPanel { Spacing = 6 };
@@ -420,6 +579,39 @@ public partial class GameSetupView : UserControl
             Spacing = 3,
             Margin = new Thickness(2, 4, 0, 4),
         };
+
+        // A fallback, not an override: a scene's own Death wire always wins.
+        // This only saves wiring the same death to every scene in a level.
+        var fallbackRow = new Grid { ColumnDefinitions = new ColumnDefinitions("150,*") };
+        fallbackRow.Children.Add(Faint("Default death"));
+        List<Guid> deaths = _project!.DeathScenes();
+        var fallback = new ComboBox
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Focusable = false,
+            FontSize = 12,
+            ItemsSource = new[] { "— none (each scene's own wire) —" }
+                .Concat(deaths.Select((id, n) => $"{n + 1} · {_project.ClipById(id)?.Name ?? "(missing)"}"))
+                .ToList(),
+        };
+        ToolTip.SetTip(fallback,
+            "Used by this level's scenes that have no Death wire of their own, and by moves that " +
+            "don't name a death. A scene's own wire always takes priority.");
+        fallback.SelectedIndex = level.DefaultDeathClipId is { } chosen
+            ? deaths.IndexOf(chosen) + 1
+            : 0;
+        fallback.SelectionChanged += (_, _) =>
+        {
+            Guid? picked = fallback.SelectedIndex > 0 && fallback.SelectedIndex <= deaths.Count
+                ? deaths[fallback.SelectedIndex - 1]
+                : null;
+            if (level.DefaultDeathClipId == picked) return;
+            level.DefaultDeathClipId = picked;
+            CommitDeferred();
+        };
+        Grid.SetColumn(fallback, 1);
+        fallbackRow.Children.Add(fallback);
+        panel.Children.Add(fallbackRow);
 
         // Death behaviour is deliberately NOT editable here. Anything but the
         // -1 loop default feeds the framework's LvlOrder requeue arithmetic and
