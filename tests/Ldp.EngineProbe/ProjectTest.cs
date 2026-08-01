@@ -179,6 +179,7 @@ public static class ProjectTest
             FfmpegCommandTest.Run(Check);
             StillImageTest.Run(Check);
             LevelCfgFilesTest.Run(Check);
+            ImportFidelityTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1161,6 +1162,8 @@ public static class ProjectTest
         StillImageTest.Run(Check);
 
         // ---- Per-level Cfg files grown to the level count ----
+        ImportFidelityTest.Run(Check);
+
         LevelCfgFilesTest.Run(Check);
 
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");

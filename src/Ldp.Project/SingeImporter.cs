@@ -13,9 +13,6 @@ public static partial class SingeImporter
 {
     public sealed record Result(int Levels, int Scenes, int Moves, int Deaths, int SlotsFilled, List<string> Warnings);
 
-    [GeneratedRegex(@"^\s*(offset\w+|frame[A-Z]\w*)\s*=\s*(\d+)", RegexOptions.Multiline)]
-    private static partial Regex OffsetPattern();
-
     [GeneratedRegex(@"^\s*Death\[(\d+)\]\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*\}\s*(?:;?\s*--\s*(.*?)\s*)?$", RegexOptions.Multiline)]
     private static partial Regex DeathPattern();
 
@@ -25,13 +22,23 @@ public static partial class SingeImporter
     [GeneratedRegex(@"(?:else)?if\s+thisLevel\s*==\s*(\d+)")]
     private static partial Regex LevelBranchPattern();
 
+    /// <summary>Scene and move frames are relative to each level's start when this is on.</summary>
+    [GeneratedRegex(@"^[ \t]*RelativeFrames[ \t]*=[ \t]*true", RegexOptions.Multiline)]
+    private static partial Regex RelativeFramesPattern();
+
+    /// <summary>The naming every frame and offset in these scripts follows.</summary>
+    [GeneratedRegex(@"^(offset\w+|frame[A-Z]\w*)$")]
+    private static partial Regex FrameNamePattern();
+
     [GeneratedRegex(@"(?:else)?if\s+thisScene\s*==\s*(\d+)")]
     private static partial Regex SceneBranchPattern();
 
-    [GeneratedRegex(@"^\s*sceneStart\s*=\s*(\d+)", RegexOptions.Multiline)]
+    // Scene bounds accept the same "base + count" form the menu block uses; the
+    // capture is resolved through the script's symbol table, not parsed as an int.
+    [GeneratedRegex(@"^\s*sceneStart\s*=\s*([A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
     private static partial Regex SceneStartPattern();
 
-    [GeneratedRegex(@"^\s*sceneEnd\s*=\s*(\d+)", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\s*sceneEnd\s*=\s*([A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
     private static partial Regex SceneEndPattern();
 
     [GeneratedRegex(@"move\[(?:n|\d+)\]\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\w+)\s*,\s*(\d+)\s*(?:,\s*(\w+)\s*)?\}")]
@@ -87,9 +94,21 @@ public static partial class SingeImporter
         }
 
         // ---- Section 2: slots ----
-        Dictionary<string, int> offsets = [];
-        foreach (Match m in OffsetPattern().Matches(scriptText))
-            offsets[m.Groups[1].Value] = int.Parse(m.Groups[2].Value);
+        // Built from every assignment in the script, not just the ones written
+        // as a bare number: authors routinely define the menu block by counting
+        // from a landmark ("frameVictory = offsetMenus +3"), which a digits-only
+        // pattern skips silently, leaving the slot looking unset.
+        LuaValues.Table symbols = LuaValues.Build(scriptText);
+        IReadOnlyDictionary<string, int> offsets = symbols.Values;
+
+        // The table covers every assignment in the script, most of which are
+        // nothing to do with frames. Only report names that follow the frame
+        // naming convention, or the log fills with settings this app never reads.
+        List<string> unresolvedFrames = symbols.Unresolved.Where(n => FrameNamePattern().IsMatch(n)).ToList();
+        if (unresolvedFrames.Count > 0)
+            warnings.Add("Frame values built on names the script never defines, left unset: " +
+                         string.Join(", ", unresolvedFrames.Take(8)) +
+                         (unresolvedFrames.Count > 8 ? $" (+{unresolvedFrames.Count - 8} more)" : ""));
 
         int slotsFilled = 0;
         foreach (SlotCatalog.RangeInfo info in SlotCatalog.Ranges)
@@ -168,12 +187,19 @@ public static partial class SingeImporter
             Match endMatch = SceneEndPattern().Match(line);
             if (startMatch.Success && currentLevel > 0)
             {
+                if (LuaValues.Resolve(startMatch.Groups[1].Value, symbols) is not { } sceneStart)
+                {
+                    warnings.Add($"L{currentLevel} S{currentScene}: sceneStart '{startMatch.Groups[1].Value.Trim()}' " +
+                                 "could not be resolved to a frame - scene skipped");
+                    scene = null;
+                    continue;
+                }
                 scene = new Clip
                 {
                     Name = $"L{currentLevel} S{currentScene}",
                     Description = levelDefs.TryGetValue(currentLevel, out GameLevel? lvl) ? lvl.Title : "",
-                    StartFrame = int.Parse(startMatch.Groups[1].Value),
-                    EndFrame = int.Parse(startMatch.Groups[1].Value), // corrected by sceneEnd below
+                    StartFrame = sceneStart,
+                    EndFrame = sceneStart, // corrected by sceneEnd below
                 };
                 project.Clips.Add(scene);
                 sceneCount++;
@@ -181,7 +207,11 @@ public static partial class SingeImporter
                     level.SceneIds.Add(scene.Id);
             }
             if (endMatch.Success && scene != null)
-                scene.EndFrame = int.Parse(endMatch.Groups[1].Value);
+            {
+                if (LuaValues.Resolve(endMatch.Groups[1].Value, symbols) is { } sceneEnd) scene.EndFrame = sceneEnd;
+                else warnings.Add($"L{currentLevel} S{currentScene}: sceneEnd '{endMatch.Groups[1].Value.Trim()}' " +
+                                  "could not be resolved to a frame - scene end left at its start");
+            }
 
             Match move = MovePattern().Match(line);
             if (move.Success && scene != null)
@@ -234,12 +264,35 @@ public static partial class SingeImporter
             }
         }
 
+        // A script that sets RelativeFrames makes a level's start frame the base
+        // every scene and move is measured from (main.singe:6403). This importer
+        // reads those numbers as absolute, so the intro check — which compares
+        // the two — would be comparing different units. Leave it alone and say so.
+        bool relativeFrames = RelativeFramesPattern().IsMatch(scriptText);
+        if (relativeFrames)
+            warnings.Add("This script sets RelativeFrames = true, so its scene and move frames are " +
+                         "offsets from each level's start, not absolute frames. They have been imported " +
+                         "as-is and will need checking against the video.");
+
         // Adopt levels in numeric order and verify counts.
         foreach ((int number, GameLevel level) in levelDefs.OrderBy(kv => kv.Key))
         {
             project.Levels.Add(level);
             if (level.SceneIds.Count == 0)
                 warnings.Add($"Level[{number}] '{level.Title}' has no scenes in setupMoves");
+
+            if (relativeFrames) continue;
+            int? firstScene = level.SceneIds
+                .Select(id => project.Clips.FirstOrDefault(c => c.Id == id))
+                .Where(c => c != null)
+                .Select(c => (int?)c!.StartFrame)
+                .DefaultIfEmpty(null)
+                .Min();
+            if (LevelIntro.Explain(number, level.Title, level.StartFrame, level.IntroEndFrame, firstScene) is { } note)
+            {
+                warnings.Add(note);
+                level.IntroEndFrame = LevelIntro.Correct(level.StartFrame, level.IntroEndFrame, firstScene);
+            }
         }
 
         BuildStoryboard(project, deathScenes.Values.ToHashSet());
