@@ -151,4 +151,37 @@ public static class MoveTokens
     public static bool IsHold(InputKind kind) =>
         kind is InputKind.HoldUp or InputKind.HoldDown or InputKind.HoldLeft
              or InputKind.HoldRight or InputKind.HoldButton;
+
+    /// <summary>
+    /// Pairing faults in one scene's moves, in play order.
+    ///
+    /// The framework reads the move after a hold expecting LETGO
+    /// (main.singe:2296, 2360, 2499) and rewinds by stepping currentMove-2, so
+    /// the two are one unit. A hold whose next move is something else, or a
+    /// release with no hold in front of it, produces a scene that misbehaves at
+    /// exactly the moment the player is trying to do something hard — worth
+    /// catching at export rather than in play-testing.
+    /// </summary>
+    public static IEnumerable<string> PairingProblems(IReadOnlyList<InteractionMarker> moves, string sceneName)
+    {
+        for (int i = 0; i < moves.Count; i++)
+        {
+            InputKind kind = moves[i].Input;
+
+            if (IsHold(kind))
+            {
+                if (i + 1 >= moves.Count)
+                    yield return $"'{sceneName}': the hold at frame {moves[i].Frame} is the scene's last move — " +
+                                 "it needs a Let go straight after it.";
+                else if (moves[i + 1].Input != InputKind.LetGo)
+                    yield return $"'{sceneName}': the hold at frame {moves[i].Frame} is followed by " +
+                                 $"{Find(TokenOf(moves[i + 1].Input) ?? "")?.Display ?? moves[i + 1].Input.ToString()} " +
+                                 $"at {moves[i + 1].Frame}, not a Let go. The framework reads the next move as the release.";
+            }
+            else if (kind == InputKind.LetGo && (i == 0 || !IsHold(moves[i - 1].Input)))
+            {
+                yield return $"'{sceneName}': the Let go at frame {moves[i].Frame} has no hold before it.";
+            }
+        }
+    }
 }

@@ -431,6 +431,9 @@ public sealed class SingeGen
 
                 sb.AppendLine($"\t\t\ttotalMoves = {moves.Count}");
                 sb.AppendLine();
+
+                // Holds and their releases are one unit to the framework.
+                _warnings.AddRange(MoveTokens.PairingProblems(moves, scene.Name));
                 for (int n = 0; n < moves.Count; n++)
                 {
                     InteractionMarker move = moves[n];

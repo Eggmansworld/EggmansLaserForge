@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.12-win-x64.zip`**.
+   and download the file named **`EggmansLaserForge-0.1.13-win-x64.zip`**.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`LaserForge.exe`**.
@@ -234,6 +234,34 @@ between back-to-back moves so you don't create an impossible sequence.
 A **skip** move is special: it covers a *range* rather than a single instant.
 Place it, then jog to where the skippable passage ends and press **E** (or the
 **⤵ End** button) to set its end frame.
+
+### Two-input and hold moves
+
+The **＋ Two-input & hold moves…** picker underneath those buttons adds the
+moves that take more than one input:
+
+| Move | Player does |
+|---|---|
+| **Up + Left**, Up + Right, Down + Left, Down + Right | Holds two directions together |
+| **Button 1 + Up / Down / Left / Right** | Holds the action button and a direction together |
+| **Hold Up / Down / Left / Right / Button 1** | Holds an input, then releases it on cue |
+
+These are on a picker rather than the keyboard on purpose — the six above are
+the ones worth muscle memory, and a key for every combination would crowd them
+out. **None of them needs a gamepad.** A diagonal is simply two direction keys
+pressed at the same time; the framework tests them as two separate inputs being
+held at once.
+
+Choosing a **Hold** adds *two* moves — the hold and a **Let go** after it —
+because the game engine reads the move following a hold as its release. Jog the
+Let go to wherever the player should let go. If a hold ever ends up without one,
+exporting tells you which scene and frame.
+
+Some community scripts use move types this app can't author yet — mash rates
+like `MASHMAX`, and multi-step branch constructs like `CHOOSE`. **Importing a
+game keeps them exactly as written** and exports them unchanged, so nothing is
+lost; they simply appear in the move list under their script name and can't be
+edited here.
 
 During playback, the currently-active move flashes **big and yellow** over the
 video, and the move list scrolls to follow along — so you can *watch* your

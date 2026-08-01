@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         ClipList.ItemsSource = _clipItems;
         LogList.ItemsSource = _logItems;
         BuildSceneViewControls();
+        BuildAdvancedMoveChoices();
         RestoreSceneView();
 
         // Every status message is captured into the slide-open log history.
@@ -2474,6 +2475,58 @@ public partial class MainWindow : Window
             AddInteraction(kind);
     }
 
+    /// <summary>One entry in the two-input / hold picker. A null kind is the prompt row.</summary>
+    private sealed record AdvancedMoveChoice(string Label, InputKind? Kind)
+    {
+        public override string ToString() => Label;
+    }
+
+    /// <summary>Guards the picker's own reset from being read as another pick.</summary>
+    private bool _pickingAdvancedMove;
+
+    /// <summary>
+    /// Fills the picker from the move catalogue. Only the tiers that fit a
+    /// single move row appear: mash rates and the branch constructs span several
+    /// rows or carry runtime state, so offering them would produce scripts the
+    /// framework cannot run.
+    /// </summary>
+    private void BuildAdvancedMoveChoices()
+    {
+        List<AdvancedMoveChoice> choices = [new("＋ Two-input & hold moves…", null)];
+
+        foreach (MoveTokens.Info info in MoveTokens.Authorable.Where(i => i.Tier == MoveTokens.Tier.Double))
+            if (MoveTokens.KindOf(info.Token) is { } kind)
+                choices.Add(new($"{InteractionItem.Glyph(kind)}  {info.Display}", kind));
+
+        // A hold is added together with its release, because the framework reads
+        // the move after a hold expecting LETGO.
+        foreach (MoveTokens.Info info in MoveTokens.Authorable.Where(i => i.Tier == MoveTokens.Tier.Hold))
+            if (MoveTokens.KindOf(info.Token) is { } kind && MoveTokens.IsHold(kind))
+                choices.Add(new($"{InteractionItem.Glyph(kind)}  {info.Display}  (+ Let go)", kind));
+
+        // Offered on its own too, so a pair broken by a stray delete can be put
+        // back without rebuilding both halves.
+        choices.Add(new($"{InteractionItem.Glyph(InputKind.LetGo)}  Let go (on its own)", InputKind.LetGo));
+
+        _pickingAdvancedMove = true;
+        AdvancedMoveCombo.ItemsSource = choices;
+        AdvancedMoveCombo.SelectedIndex = 0;
+        _pickingAdvancedMove = false;
+    }
+
+    private void OnAddAdvancedMove(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_pickingAdvancedMove) return;
+        if (AdvancedMoveCombo.SelectedItem is not AdvancedMoveChoice { Kind: { } kind }) return;
+
+        // Snap back to the prompt: this reads as an action menu, not a setting.
+        _pickingAdvancedMove = true;
+        AdvancedMoveCombo.SelectedIndex = 0;
+        _pickingAdvancedMove = false;
+
+        AddInteraction(kind);
+    }
+
     private void AddInteraction(InputKind kind)
     {
         if (_project == null) return;
@@ -2506,9 +2559,30 @@ public partial class MainWindow : Window
         }
 
         clip.Interactions.Add(marker);
+
+        // A hold is only meaningful with its release: the framework reads the
+        // move straight after a hold expecting LETGO, and rewinds by stepping
+        // back two. Adding one without the other would author a broken scene, so
+        // the pair goes in together and the author moves the release where they
+        // want it.
+        string paired = "";
+        if (MoveTokens.IsHold(kind))
+        {
+            int releaseFrame = frame + InteractionRules.MinSpacing(_project.BaseWindowFrames);
+            if (releaseFrame <= clip.EndFrame)
+            {
+                clip.Interactions.Add(new InteractionMarker { Frame = releaseFrame, Input = InputKind.LetGo });
+                paired = $" + Let go at {releaseFrame}";
+            }
+            else
+            {
+                paired = " — no room for its Let go before the scene ends; add one after making space";
+            }
+        }
+
         clip.Interactions.Sort((a, b2) => a.Frame.CompareTo(b2.Frame));
-        AfterInteractionChange(clip, $"{InteractionItem.Glyph(kind)} {kind} at {frame}" +
-            (marker.EndFrameOverride is { } e2 ? $"–{e2}" : ""));
+        AfterInteractionChange(clip, $"{InteractionItem.Glyph(kind)} {InteractionItem.Label(marker)} at {frame}" +
+            (marker.EndFrameOverride is { } e2 ? $"–{e2}" : "") + paired);
     }
 
     private void OnDeleteInteraction(object? sender, RoutedEventArgs e)

@@ -335,7 +335,8 @@
 
                     <TextBlock Grid.Row="3" Name="InteractionsTitle" Text="INTERACTIONS" Foreground="{DynamicResource FgFaint}"
                                FontSize="11" FontWeight="Bold" Margin="4,12,0,4"/>
-                    <StackPanel Grid.Row="4" Orientation="Horizontal" Spacing="4" Margin="0,0,0,6">
+                    <StackPanel Grid.Row="4" Spacing="4" Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
                         <Button Content="↑" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Up"/>
                         <Button Content="↓" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Down"/>
                         <Button Content="←" Focusable="False" Width="36" Click="OnAddInteraction" Tag="Left"/>
@@ -350,6 +351,13 @@
                         <Button Name="DeleteInteractionButton" Content="✕" Focusable="False" Width="36"
                                 IsEnabled="False" Click="OnDeleteInteraction"
                                 ToolTip.Tip="Remove selected move"/>
+                    </StackPanel>
+                    <!-- Moves that take two inputs at once, or a hold and its
+                         release. Kept off the keyboard on purpose: the six
+                         above are the ones worth muscle memory. -->
+                    <ComboBox Name="AdvancedMoveCombo" HorizontalAlignment="Stretch" Focusable="False"
+                              SelectionChanged="OnAddAdvancedMove"
+                              ToolTip.Tip="Two inputs held together, or a hold and release. All work on a keyboard — no gamepad needed."/>
                     </StackPanel>
                     <ListBox Grid.Row="5" Name="InteractionList" Background="Transparent" Focusable="False"
                              SelectionChanged="OnInteractionSelected" DoubleTapped="OnGotoInteraction">

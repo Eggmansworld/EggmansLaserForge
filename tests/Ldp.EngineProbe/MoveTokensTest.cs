@@ -25,6 +25,64 @@ public static class MoveTokensTest
         CatalogChecks(Check);
         RoundTripChecks(Check);
         ReportChecks(Check);
+        PairingChecks(Check);
+    }
+
+    /// <summary>
+    /// A hold and its release are one unit to the framework, which reads the
+    /// move after a hold expecting LETGO and rewinds by stepping back two.
+    /// </summary>
+    private static void PairingChecks(Action<string, bool> Check)
+    {
+        static InteractionMarker M(int frame, InputKind kind) => new() { Frame = frame, Input = kind };
+
+        Check("pairing: a hold followed by a release is clean",
+              !MoveTokens.PairingProblems([M(100, InputKind.HoldLeft), M(200, InputKind.LetGo)], "S").Any());
+        Check("pairing: an ordinary scene is clean",
+              !MoveTokens.PairingProblems([M(100, InputKind.Up), M(200, InputKind.Button1)], "S").Any());
+        Check("pairing: two pairs in a row are clean",
+              !MoveTokens.PairingProblems(
+                  [M(100, InputKind.HoldUp), M(200, InputKind.LetGo),
+                   M(300, InputKind.HoldButton), M(400, InputKind.LetGo)], "S").Any());
+
+        Check("pairing: a hold at the end of a scene is caught",
+              MoveTokens.PairingProblems([M(100, InputKind.Up), M(200, InputKind.HoldRight)], "S")
+                        .Any(w => w.Contains("last move") && w.Contains("200")));
+        Check("pairing: a hold followed by something else is caught",
+              MoveTokens.PairingProblems([M(100, InputKind.HoldUp), M(200, InputKind.Down)], "S")
+                        .Any(w => w.Contains("not a Let go") && w.Contains("Down")));
+        Check("pairing: a stray release is caught",
+              MoveTokens.PairingProblems([M(100, InputKind.Up), M(200, InputKind.LetGo)], "S")
+                        .Any(w => w.Contains("no hold before it")));
+        Check("pairing: a release as the first move is caught",
+              MoveTokens.PairingProblems([M(100, InputKind.LetGo)], "S")
+                        .Any(w => w.Contains("no hold before it")));
+        Check("pairing: the scene is named in the fault",
+              MoveTokens.PairingProblems([M(100, InputKind.HoldUp)], "Cliff edge")
+                        .All(w => w.Contains("Cliff edge")));
+
+        // Two holds back to back: the first is unpaired, the second unreleased.
+        Check("pairing: back-to-back holds are both caught",
+              MoveTokens.PairingProblems([M(100, InputKind.HoldUp), M(200, InputKind.HoldDown)], "S").Count() == 2);
+
+        // And the same fault must surface through a real export.
+        var project = new LdpProject { Name = "Pairing", Author = "Eggman", GameDate = "2026-08-01" };
+        SingeImporter.Import(project, Script("""
+                        move[n] = {200, 220, HOLDUP, 0};n=n+1
+                        move[n] = {300, 320, DOWN, 0};n=n+1
+            """));
+        Check("pairing: export warns about an unpaired hold",
+              SingeTemplate.Apply(project, SingeTemplate.DefaultTemplate)
+                           .Warnings.Any(w => w.Contains("not a Let go")));
+
+        var paired = new LdpProject { Name = "Paired", Author = "Eggman", GameDate = "2026-08-01" };
+        SingeImporter.Import(paired, Script("""
+                        move[n] = {200, 220, HOLDUP, 0};n=n+1
+                        move[n] = {300, 320, LETGO, 0};n=n+1
+            """));
+        Check("pairing: a correct pair exports without a pairing warning",
+              !SingeTemplate.Apply(paired, SingeTemplate.DefaultTemplate)
+                            .Warnings.Any(w => w.Contains("Let go") || w.Contains("hold")));
     }
 
     private static void CatalogChecks(Action<string, bool> Check)
