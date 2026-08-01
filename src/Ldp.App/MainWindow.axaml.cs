@@ -83,7 +83,6 @@ public partial class MainWindow : Window
         VideoImage.PointerWheelChanged += OnWheel;
         VideoList.ItemsSource = _videoItems;
         ClipList.ItemsSource = _clipItems;
-        LogList.ItemsSource = _logItems;
         BuildSceneViewControls();
         BuildAdvancedMoveChoices();
         RestoreSceneView();
@@ -173,6 +172,10 @@ public partial class MainWindow : Window
         _lastLogged = text;
         _logItems.Add($"{DateTime.Now:HH:mm:ss}  {text}");
         while (_logItems.Count > 300) _logItems.RemoveAt(0);
+        // The panel is one text block so a selection can run across lines, which
+        // means the whole history is rewritten on each line rather than a row
+        // being appended. At a 300-line cap that is nothing.
+        LogText.Text = string.Join(Environment.NewLine, _logItems);
         if (LogPanel.IsVisible) ScrollLogToEnd();
     }
 
@@ -641,6 +644,7 @@ public partial class MainWindow : Window
         RemoveVideoButton.IsEnabled = false; // re-enabled when a video is selected
         RenameVideoButton.IsEnabled = false;
         ImportChaptersButton.IsEnabled = hasProject;
+        NormalizeWindowsButton.IsEnabled = hasProject;
         MarkInButton.IsEnabled = MarkOutButton.IsEnabled = hasProject;
         EmptyState.IsVisible = !hasProject;
 
@@ -849,16 +853,25 @@ public partial class MainWindow : Window
             MarkDirty();
             SaveProject();
             UpdateProjectUi();
-            StatusText.Text = $"Imported {Path.GetFileName(path)}: {result.Levels} levels, {result.Scenes} scenes, " +
-                              $"{result.Moves} moves, {result.Deaths} deaths, {result.SlotsFilled} slots" +
-                              (result.Warnings.Count > 0 ? $" — ⚠ {result.Warnings.Count} warnings (see project notes)" : "");
-            if (result.Warnings.Count > 0)
-                StatusText.Text += " " + string.Join(" · ", result.Warnings.Take(2));
+            string summary = $"{result.Levels} levels, {result.Scenes} scenes, " +
+                             $"{result.Moves} moves, {result.Deaths} deaths, {result.SlotsFilled} slots";
+            StatusText.Text = $"Imported {Path.GetFileName(path)}: {summary}" +
+                              (result.Warnings.Count > 0 ? $" — ⚠ {result.Warnings.Count} warnings" : "");
+
+            // Every warning gets its own line and the drawer opens itself, the
+            // same treatment export warnings get.
+            ReportExportWarnings(result.Warnings, $"Imported {Path.GetFileName(path)}: {summary}");
             ShowStoryboardPane();
 
             // Give every imported scene a thumbnail from the loaded videos.
             await GenerateMissingThumbnailsAsync();
             await EnsureSlotThumbnailsAsync();
+
+            // An import can correct frames, drop nothing but rewrite intros, and
+            // note moves this editor cannot author. That is worth stopping for —
+            // a status line scrolls past while the thumbnails are still decoding.
+            if (result.Warnings.Count > 0)
+                await new ImportReportDialog(Path.GetFileName(path), summary, result.Warnings).ShowDialog(this);
         }
         catch (Exception ex)
         {
@@ -2585,11 +2598,65 @@ public partial class MainWindow : Window
             (marker.EndFrameOverride is { } e2 ? $"–{e2}" : "") + paired);
     }
 
+    /// <summary>
+    /// Clears every hand-set reaction window so the standard one applies again.
+    ///
+    /// Aimed at imported games. Shortening windows move by move reads as a
+    /// difficulty knob but defeats the one the framework already has: Normal,
+    /// Hard and Extreme each shrink the window further, so a window hand-cut to
+    /// a handful of frames leaves nothing to shrink and those modes stop being
+    /// playable at all. Skips keep theirs — a skip's window is the passage it
+    /// covers, not a reaction time.
+    /// </summary>
+    private async void OnNormalizeWindows(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null) return;
+
+        int affected = _project.Clips.Sum(c => c.Interactions.Count(InteractionRules.HasCustomWindow));
+        if (affected == 0)
+        {
+            StatusText.Text = $"Every move already uses the standard {_project.BaseWindowFrames}-frame window.";
+            return;
+        }
+
+        var confirm = new ConfirmDialog(
+            "Reset all move timings?",
+            $"{affected} move(s) carry a hand-set window. Each goes back to the standard " +
+            $"{_project.BaseWindowFrames} frames, which is what the difficulty levels shrink from — " +
+            "so Normal, Hard and Extreme behave properly again.\n\n" +
+            "Skip moves keep their windows: a skip covers a passage rather than a reaction.\n\n" +
+            "Undo (Ctrl+Z) puts them back.");
+        if (await confirm.ShowDialog<bool>(this) is not true) return;
+
+        int changed = InteractionRules.NormalizeWindows(_project.Clips);
+        RefreshInteractions();
+        RepaintMarkerStrip();
+        MarkDirty();
+        SaveProject();
+        StatusText.Text = $"Reset {changed} move timing(s) to the standard {_project.BaseWindowFrames}-frame window.";
+    }
+
     private void OnDeleteInteraction(object? sender, RoutedEventArgs e)
     {
-        if (SelectedClip is not { } clip || InteractionList.SelectedItem is not InteractionItem item) return;
-        clip.Interactions.RemoveAll(m => m.Id == item.Marker.Id);
-        AfterInteractionChange(clip, "interaction removed");
+        if (SelectedClip is not { } clip) return;
+        HashSet<Guid> doomed = InteractionList.SelectedItems?
+            .OfType<InteractionItem>()
+            .Select(i => i.Marker.Id)
+            .ToHashSet() ?? [];
+        if (doomed.Count == 0) return;
+
+        // A hold and its release are one gesture: deleting the hold on its own
+        // strands a release the framework would read as belonging to whatever
+        // move now precedes it, so the pair goes together.
+        List<InteractionMarker> ordered = clip.Interactions.OrderBy(m => m.Frame).ToList();
+        for (int i = 0; i < ordered.Count - 1; i++)
+            if (doomed.Contains(ordered[i].Id) &&
+                MoveTokens.IsHold(ordered[i].Input) &&
+                ordered[i + 1].Input == InputKind.LetGo)
+                doomed.Add(ordered[i + 1].Id);
+
+        int removed = clip.Interactions.RemoveAll(m => doomed.Contains(m.Id));
+        AfterInteractionChange(clip, removed == 1 ? "interaction removed" : $"{removed} interactions removed");
     }
 
     private void AfterInteractionChange(Clip clip, string what)
@@ -2609,8 +2676,11 @@ public partial class MainWindow : Window
 
     private void OnInteractionSelected(object? sender, SelectionChangedEventArgs e)
     {
-        DeleteInteractionButton.IsEnabled = InteractionList.SelectedItem is InteractionItem;
-        SetSkipEndButton.IsEnabled = InteractionList.SelectedItem is InteractionItem { Marker.Input: InputKind.Skip };
+        int selected = InteractionList.SelectedItems?.Count ?? 0;
+        DeleteInteractionButton.IsEnabled = selected > 0;
+        // These act on one move; with several picked there is no single answer.
+        SetSkipEndButton.IsEnabled = selected == 1 &&
+            InteractionList.SelectedItem is InteractionItem { Marker.Input: InputKind.Skip };
         RefreshMoveDeathCombo();
     }
 
@@ -2631,7 +2701,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void RefreshMoveDeathCombo()
     {
-        if (_project == null || InteractionList.SelectedItem is not InteractionItem item)
+        if (_project == null || InteractionList.SelectedItems?.Count != 1 ||
+            InteractionList.SelectedItem is not InteractionItem item)
         {
             _fillingMoveDeath = true;
             MoveDeathRow.IsEnabled = false;

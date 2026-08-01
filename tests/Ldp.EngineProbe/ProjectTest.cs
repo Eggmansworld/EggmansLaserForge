@@ -182,6 +182,7 @@ public static class ProjectTest
             ImportFidelityTest.Run(Check);
             MoveTokensTest.Run(Check);
             DeathScenesTest.Run(Check);
+            MoveTimingTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1167,6 +1168,7 @@ public static class ProjectTest
         ImportFidelityTest.Run(Check);
         MoveTokensTest.Run(Check);
         DeathScenesTest.Run(Check);
+        MoveTimingTest.Run(Check);
 
         LevelCfgFilesTest.Run(Check);
 

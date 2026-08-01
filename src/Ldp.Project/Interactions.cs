@@ -148,6 +148,40 @@ public static class InteractionRules
     public static int MinSpacing(int baseWindow) => baseWindow * 2;
 
     /// <summary>
+    /// Whether this move carries a hand-set window that <see cref="NormalizeWindows"/>
+    /// would clear. Skips are excluded because their window IS the feature —
+    /// a skip covers a passage, so it has no standard length to return to.
+    /// </summary>
+    public static bool HasCustomWindow(InteractionMarker move) =>
+        move.Input != InputKind.Skip && move.EndFrameOverride != null;
+
+    /// <summary>
+    /// Clears hand-set reaction windows so every move gets the standard one
+    /// again, and reports how many were changed.
+    ///
+    /// Some published games shorten windows move by move as a difficulty knob.
+    /// It reads as authoring but it breaks the difficulty system: the framework
+    /// already shrinks the window for Normal, Hard and Extreme, so a window
+    /// hand-cut to a few frames leaves nothing to shrink and the harder modes
+    /// become unplayable rather than harder. Games built that way only really
+    /// work on the one mode their author tested.
+    ///
+    /// Skips are left alone — see <see cref="HasCustomWindow"/>.
+    /// </summary>
+    public static int NormalizeWindows(IEnumerable<Clip> clips)
+    {
+        int changed = 0;
+        foreach (Clip clip in clips)
+            foreach (InteractionMarker move in clip.Interactions)
+                if (HasCustomWindow(move))
+                {
+                    move.EndFrameOverride = null;
+                    changed++;
+                }
+        return changed;
+    }
+
+    /// <summary>
     /// Returns the ids of markers that violate placement rules within their
     /// clip: too close to the previous marker (spacing &lt; window + cushion),
     /// window extending past the clip's end, or start outside the clip.
@@ -169,7 +203,24 @@ public static class InteractionRules
 
             // Cushion: after the previous move's window closes, a full window's
             // worth of frames must pass before the next window opens.
-            if (i > 0 && marker.Frame < sorted[i - 1].WindowEnd(baseWindow) + 1 + baseWindow)
+            //
+            // A release is exempt from the cushion against the hold it belongs
+            // to. The two are one gesture, not two reactions: the player is
+            // already holding the input, so there is nothing to react to and no
+            // reason to wait. Letting go on the very next frame is normal
+            // authoring, and flagging it made every hold look broken.
+            //
+            // Everything after the release is still measured against it, so a
+            // real move crowding the end of the gesture is still caught.
+            bool releaseOfPreviousHold =
+                i > 0 && marker.Input == InputKind.LetGo && MoveTokens.IsHold(sorted[i - 1].Input);
+
+            if (i > 0 && !releaseOfPreviousHold &&
+                marker.Frame < sorted[i - 1].WindowEnd(baseWindow) + 1 + baseWindow)
+                violators.Add(marker.Id);
+
+            // A release still has to come after the hold actually starts.
+            if (releaseOfPreviousHold && marker.Frame <= sorted[i - 1].Frame)
                 violators.Add(marker.Id);
         }
         return violators;

@@ -30,6 +30,8 @@
                         <MenuItem Header="_Tools" Padding="10,6">
                             <MenuItem Name="ConvertVideoButton" Header="🎞 Convert Video → M2V…" Click="OnConvertVideo"/>
                             <MenuItem Name="StillImageButton" Header="🖼 Still Image → M2V…" Click="OnStillImage"/>
+                            <MenuItem Name="NormalizeWindowsButton" Header="⏱ Reset All Move Timings…" IsEnabled="False"
+                                      Click="OnNormalizeWindows"/>
                             <MenuItem Name="ImportChaptersButton" Header="🕮 Import Chapters as Scenes…" IsEnabled="False"
                                       Click="OnImportChapters"/>
                         </MenuItem>
@@ -63,17 +65,14 @@
                 <Border Name="LogPanel" IsVisible="False" Height="170" Background="{DynamicResource BgCanvas}"
                         BorderBrush="{DynamicResource Divider}" BorderThickness="0,0,0,1">
                     <ScrollViewer Name="LogScroll">
-                        <!-- Selectable so a line can be dragged out with the mouse;
-                             ⧉ Copy next to the toggle grabs the whole history. -->
-                        <ItemsControl Name="LogList" Margin="10,6">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <SelectableTextBlock Text="{Binding}" Foreground="{DynamicResource FgMuted}"
-                                                         FontFamily="Consolas,monospace" FontSize="12"
-                                                         TextWrapping="Wrap" Margin="0,1"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                        <!-- One block, not a line per item. A SelectableTextBlock
+                             can only select within itself, so a list of them let
+                             you drag across one line and no further; the whole
+                             history has to be a single run of text to select a
+                             passage out of. ⧉ Copy still grabs all of it. -->
+                        <SelectableTextBlock Name="LogText" Margin="10,6" Foreground="{DynamicResource FgMuted}"
+                                             FontFamily="Consolas,monospace" FontSize="12"
+                                             TextWrapping="Wrap"/>
                     </ScrollViewer>
                 </Border>
                 <DockPanel Margin="10,3">
@@ -355,19 +354,22 @@
                     <!-- Moves that take two inputs at once, or a hold and its
                          release. Kept off the keyboard on purpose: the six
                          above are the ones worth muscle memory. -->
-                    <ComboBox Name="AdvancedMoveCombo" HorizontalAlignment="Stretch" Focusable="False"
+                    <ComboBox Name="AdvancedMoveCombo" HorizontalAlignment="Stretch" Focusable="False" FontSize="12"
                               SelectionChanged="OnAddAdvancedMove"
                               ToolTip.Tip="Two inputs held together, or a hold and release. All work on a keyboard — no gamepad needed."/>
                     <!-- Acts on the selected move, like ⤵ End above. -->
                     <Grid ColumnDefinitions="Auto,*" IsEnabled="False" Name="MoveDeathRow">
                         <TextBlock Text="Death" VerticalAlignment="Center" FontSize="12"
                                    Foreground="{DynamicResource FgFaint}" Margin="2,0,6,0"/>
-                        <ComboBox Grid.Column="1" Name="MoveDeathCombo" HorizontalAlignment="Stretch"
+                        <ComboBox Grid.Column="1" Name="MoveDeathCombo" HorizontalAlignment="Stretch" FontSize="12"
                                   Focusable="False" SelectionChanged="OnMoveDeathChanged"
                                   ToolTip.Tip="Death scene for the selected move. Leave on Default to use the scene's Death wire, or the level's fallback."/>
                     </Grid>
                     </StackPanel>
+                    <!-- Multiple so a run of moves can be cleared in one go:
+                         Ctrl+click to pick out several, Shift+click for a range. -->
                     <ListBox Grid.Row="5" Name="InteractionList" Background="Transparent" Focusable="False"
+                             SelectionMode="Multiple"
                              SelectionChanged="OnInteractionSelected" DoubleTapped="OnGotoInteraction">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:DataType="app:InteractionItem">
