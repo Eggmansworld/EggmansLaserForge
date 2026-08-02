@@ -130,6 +130,8 @@ public static class FfmpegCommandTest
 
         RunMediaInfo(Check);
         RunChaptersAndLanguages(Check);
+        BlankChecks(Check, dir);
+        FrameRateChecks(Check, dir);
     }
 
     /// <summary>Chapter parsing + chapter→scene math + language-code helpers.</summary>
@@ -279,5 +281,104 @@ public static class FfmpegCommandTest
                   [(1200, 900), (960, 720), (768, 576), (640, 480)]));
         Check("probe: widths always even",
               MediaInfo.DownscalePresets(3996, 2160).All(p => p.Width % 2 == 0));
+
+    }
+
+    private static int PositionOf(IReadOnlyList<string> args, string token)
+    {
+        for (int i = 0; i < args.Count; i++)
+            if (args[i] == token) return i;
+        return -1;
+    }
+
+    /// <summary>
+    /// Blanking a span of frames. Every frame number an imported game holds is an
+    /// index into its video file, so the one thing this must never do is shift
+    /// them: the span is inclusive at both ends and the encode is frame-for-frame.
+    /// </summary>
+    private static void BlankChecks(Action<string, bool> Check, string dir)
+    {
+        string src = Path.Combine(dir, "main.m2v");
+        string dst = Path.Combine(dir, "main-blanked.m2v");
+        var balanced = new ConvertOptions { Video = VideoQuality.Balanced };
+
+        // between() is inclusive on BOTH ends. "blank 0 through K-1" is therefore
+        // between(n,0,K-1) - writing between(n,0,K) blanks one frame too many,
+        // and that frame could be the first one a death scene needs.
+        Check("blank: filter is inclusive at both ends",
+              FfmpegCommand.BlankFilter(new FfmpegCommand.BlankSpan(0, 49648)) ==
+              "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(n\\,0\\,49648)'");
+        Check("blank: single frame span",
+              FfmpegCommand.BlankFilter(new FfmpegCommand.BlankSpan(7, 7)).Contains("between(n\\,7\\,7)"));
+
+        Check("blank: span counts inclusively",
+              new FfmpegCommand.BlankSpan(0, 49648).FrameCount == 49649 &&
+              new FfmpegCommand.BlankSpan(100, 100).FrameCount == 1);
+        Check("blank: backwards and negative spans are invalid",
+              !new FfmpegCommand.BlankSpan(500, 499).IsValid &&
+              !new FfmpegCommand.BlankSpan(-1, 10).IsValid &&
+              new FfmpegCommand.BlankSpan(0, 0).IsValid);
+
+        // Same quality flags as every other pass, plus passthrough so the frame
+        // count survives - an output -r would resample against the rate FFmpeg
+        // infers from the sequence header and silently drop frames.
+        IReadOnlyList<string> args = FfmpegCommand.BlankArgs(
+            src, dst, new FfmpegCommand.BlankSpan(0, 49648), balanced);
+        Check("blank: args exact", args.SequenceEqual(
+            ["-y", "-i", src,
+             "-vf", "drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(n\\,0\\,49648)'",
+             "-an", "-qscale:v", "4", "-b:v", "6000k",
+             "-fps_mode", "passthrough", "-codec:v", "mpeg2video", dst]));
+        Check("blank: never carries an output -r", !args.Skip(3).Contains("-r"));
+        Check("blank: honours the quality preset",
+              FfmpegCommand.BlankArgs(src, dst, new FfmpegCommand.BlankSpan(0, 5), new ConvertOptions())
+                  .Contains("1"));
+    }
+
+    /// <summary>
+    /// Re-timing a clip to the project's frame rate. Unlike blanking, this is
+    /// meant to change the frame count — it is a real re-timing so the clip plays
+    /// at the right speed rather than 20% fast.
+    /// </summary>
+    private static void FrameRateChecks(Action<string, bool> Check, string dir)
+    {
+        _ = dir;
+        string src = Path.Combine(dir, "clip25.m2v");
+        string dst = Path.Combine(dir, "clip25-29.97.m2v");
+
+        // The broadcast rates are ratios. 29.97 drifts about a frame every two
+        // minutes against 30000/1001, which over a feature is minutes of desync.
+        Check("fps: NTSC rates written as exact ratios",
+              FfmpegCommand.FormatFps(29.97) == "30000/1001" &&
+              FfmpegCommand.FormatFps(30000.0 / 1001) == "30000/1001" &&
+              FfmpegCommand.FormatFps(23.976) == "24000/1001" &&
+              FfmpegCommand.FormatFps(59.94) == "60000/1001");
+        Check("fps: whole rates stay whole",
+              FfmpegCommand.FormatFps(25) == "25" && FfmpegCommand.FormatFps(24) == "24" &&
+              FfmpegCommand.FormatFps(30) == "30" && FfmpegCommand.FormatFps(50) == "50");
+        Check("fps: an odd rate falls back to a decimal",
+              FfmpegCommand.FormatFps(18.5) == "18.5");
+
+        // -r BEFORE -i declares the source rate; the fps filter resamples from it.
+        // ffprobe reports 25 fps for a raw .m2v that is really 29.97, so the rate
+        // has to be told, not guessed.
+        IReadOnlyList<string> args = FfmpegCommand.FrameRateArgs(
+            src, dst, 25, 29.97, new ConvertOptions { Video = VideoQuality.Balanced });
+        Check("fps: args exact", args.SequenceEqual(
+            ["-y", "-r", "25", "-i", src, "-vf", "fps=30000/1001", "-an",
+             "-qscale:v", "4", "-b:v", "6000k", "-codec:v", "mpeg2video", dst]));
+        Check("fps: source rate is declared before the input",
+              PositionOf(args, "-r") >= 0 && PositionOf(args, "-r") < PositionOf(args, "-i"));
+
+        // 1110 frames of 29.97 became 926 at 25 in the real conversion.
+        Check("fps: predicted count matches the measured conversion",
+              FfmpegCommand.FrameCountAfterRateChange(1110, 29.97, 25) == 926);
+        Check("fps: predicted count going up",
+              FfmpegCommand.FrameCountAfterRateChange(1110, 25, 29.97) == 1331);
+        Check("fps: same rate is a no-op count",
+              FfmpegCommand.FrameCountAfterRateChange(5000, 29.97, 29.97) == 5000);
+        Check("fps: degenerate inputs give zero",
+              FfmpegCommand.FrameCountAfterRateChange(0, 25, 30) == 0 &&
+              FfmpegCommand.FrameCountAfterRateChange(100, 0, 30) == 0);
     }
 }

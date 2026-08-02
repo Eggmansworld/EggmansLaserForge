@@ -436,6 +436,33 @@ out, and a dialog gives you everything to run it:
 Your video, audio, and generated frame-index files are **not** part of the
 project file — keep the originals safe yourself.
 
+### Reworking a video you already have
+
+Two repairs live in the **Tools** menu for videos that are *nearly* right.
+
+**Tools → ⬛ Black Out Frames…** paints a span of a video black without moving a
+single frame. This is for imported games: authors sometimes cut the whole film
+into out-of-order pieces and append the deaths, still frames and system videos
+at the end. Once you have the film as its own clean video, the film half of the
+original is dead weight — but its **frame numbers are not**, because every death
+and still slot in the imported script points into that same file. Blacking those
+frames out keeps every number exactly where it is and drops most of the bytes
+(around 85% of the blanked span). Both ends of the span are **included**, and the
+numbers are the ones on the app's own frame counter.
+
+Before the app will use the result it re-reads it and checks the frame count
+matches the original **exactly**. If it doesn't, the file is left on disk and
+nothing is swapped — a frame gained or lost would move every scene, move, death
+and slot at once. The original file is kept, and **Ctrl+Z** undoes the swap.
+
+**Tools → ⏩ Change Frame Rate…** re-times a clip that arrived at the wrong rate.
+Every video in a game has to share one frame rate, because all move timing is
+counted in frames, so a 25 fps clip can't join a 29.97 fps project until it's
+converted. The target is preselected to your project's rate, and the frame count
+before and after is shown before you run it. This is a real re-timing, not a
+relabel — frames are added or dropped so the clip plays at the right speed —
+which is why it's meant for a clip you have **not** added to the project yet.
+
 ---
 
 ## 15. Keyboard shortcuts

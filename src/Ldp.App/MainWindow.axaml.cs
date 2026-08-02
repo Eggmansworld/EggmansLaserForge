@@ -645,6 +645,7 @@ public partial class MainWindow : Window
         RenameVideoButton.IsEnabled = false;
         ImportChaptersButton.IsEnabled = hasProject;
         NormalizeWindowsButton.IsEnabled = hasProject;
+        BlankFramesButton.IsEnabled = hasProject && _project!.Videos.Count > 0;
         MarkInButton.IsEnabled = MarkOutButton.IsEnabled = hasProject;
         EmptyState.IsVisible = !hasProject;
 
@@ -858,9 +859,18 @@ public partial class MainWindow : Window
             StatusText.Text = $"Imported {Path.GetFileName(path)}: {summary}" +
                               (result.Warnings.Count > 0 ? $" — ⚠ {result.Warnings.Count} warnings" : "");
 
+            // Importing into a brand-new game folder is the normal way to start
+            // from an existing game, and that folder has no video in it yet.
+            // Without saying so, the author sees a storyboard of blank scenes and
+            // reads it as the import having half-failed.
+            List<string> notes = [.. result.Warnings];
+            if (_project.Videos.Count == 0)
+                notes.Add("This project has no video yet, so the imported scenes have no picture and cannot be " +
+                          "played. Add the game's .m2v with '＋ Add Video…' and the thumbnails fill themselves in.");
+
             // Every warning gets its own line and the drawer opens itself, the
             // same treatment export warnings get.
-            ReportExportWarnings(result.Warnings, $"Imported {Path.GetFileName(path)}: {summary}");
+            ReportExportWarnings(notes, $"Imported {Path.GetFileName(path)}: {summary}");
             ShowStoryboardPane();
 
             // Give every imported scene a thumbnail from the loaded videos.
@@ -870,12 +880,12 @@ public partial class MainWindow : Window
             // An import can correct frames, drop nothing but rewrite intros, and
             // note moves this editor cannot author. That is worth stopping for —
             // a status line scrolls past while the thumbnails are still decoding.
-            if (result.Warnings.Count > 0)
-                await new ImportReportDialog(Path.GetFileName(path), summary, result.Warnings).ShowDialog(this);
+            if (notes.Count > 0)
+                await new ImportReportDialog(Path.GetFileName(path), summary, notes).ShowDialog(this);
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Import failed: " + ex.Message;
+            ReportFailure("Import failed", ex);
         }
     }
 
@@ -938,7 +948,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            StatusText.Text = "Export failed: " + ex.Message;
+            ReportFailure("Export failed", ex);
         }
     }
 
@@ -958,6 +968,22 @@ public partial class MainWindow : Window
 
         StatusText.Text = $"{headline} — ⚠ {warnings.Count} thing(s) to look at, listed in the log below";
         foreach (string warning in warnings) AppendLog("⚠ " + warning);
+        if (!LogPanel.IsVisible) OnToggleLog(this, new RoutedEventArgs());
+        Dispatcher.UIThread.Post(LogScroll.ScrollToEnd, DispatcherPriority.Background);
+    }
+
+    /// <summary>
+    /// A failed operation, reported so it can actually be diagnosed. The status
+    /// line alone gave "Object reference not set to an instance of an object",
+    /// which names neither the operation that broke nor the line it broke on —
+    /// a bug report built from it costs a full reproduction to act on. The
+    /// message stays on the status line; the type and stack go to the log,
+    /// where they can be selected and copied.
+    /// </summary>
+    private void ReportFailure(string what, Exception ex)
+    {
+        StatusText.Text = $"{what}: {ex.Message} ({ex.GetType().Name} — full detail in the log below)";
+        AppendLog(ex.ToString());
         if (!LogPanel.IsVisible) OnToggleLog(this, new RoutedEventArgs());
         Dispatcher.UIThread.Post(LogScroll.ScrollToEnd, DispatcherPriority.Background);
     }
@@ -1096,6 +1122,11 @@ public partial class MainWindow : Window
                     FrameImage image = await Task.Run(() => engine.GetFrame(local));
                     WriteableBitmap thumb = Thumbnails.FromFrame(image);
                     thumb.Save(Path.Combine(cacheDir, clip.Id + ".png"));
+                    // The row was built when this picture did not exist, and rows
+                    // are cached by clip id — without dropping it, the scene list
+                    // and the storyboard keep showing the empty one until the
+                    // project is closed and reopened.
+                    InvalidateSceneItem(clip.Id);
                     made++;
                 }
                 catch (Exception) { /* skip scenes that fail to decode */ }
@@ -1143,10 +1174,170 @@ public partial class MainWindow : Window
 
         // A non-.m2v source (mkv/mp4/webm) can't be played by Hypseus — route it
         // through conversion first, then add the resulting .m2v.
-        if (IsM2vStream(path))
-            await TryAddVideoAsync(path);
-        else
+        if (!IsM2vStream(path))
+        {
             await ConvertThenAddAsync([path]);
+            return;
+        }
+
+        if (await TryAddVideoAsync(path)) await FillPicturesWaitingOnVideoAsync();
+    }
+
+    /// <summary>
+    /// Decodes whatever was waiting for a video to exist. Scenes and slots can
+    /// be created before any media is present — importing a .singe into a fresh
+    /// game folder does exactly that — and their pictures were only made on
+    /// import and on open, so adding the video left the app looking broken
+    /// until it was restarted.
+    /// </summary>
+    private async Task FillPicturesWaitingOnVideoAsync()
+    {
+        await GenerateMissingThumbnailsAsync();
+        await EnsureSlotThumbnailsAsync();
+    }
+
+    /// <summary>
+    /// Paints a span of one of the project's videos black and, when the result
+    /// checks out, points the project at it. The blanked file only earns the
+    /// swap if it has EXACTLY the frame count of the file it replaces — every
+    /// scene, move, death and slot in the project is an index into that file,
+    /// so a frame gained or lost would move all of them at once.
+    /// </summary>
+    private async void OnBlankFrames(object? sender, RoutedEventArgs e)
+    {
+        if (_project == null || _projectPath == null) return;
+        StopPlayback();
+
+        var dialog = new VideoToolDialog(_settings, VideoToolMode.Blank, _project, _projectPath);
+        await dialog.ShowDialog(this);
+        if (dialog.ProducedPath is not { } produced || dialog.BlankedVideo is not { } target) return;
+
+        int index = _project.Videos.IndexOf(target);
+        if (index < 0) return;
+
+        string oldPath = ProjectFile.ResolveVideoPath(_projectPath, target);
+        int frames;
+        try
+        {
+            FrameEngine check = await OpenEngineAsync(produced);
+            frames = check.Index.CodedPictureCount;
+            check.Dispose();
+        }
+        catch (Exception ex)
+        {
+            ReportFailure("Could not read the blanked file", ex);
+            return;
+        }
+
+        if (frames != target.PictureCount)
+        {
+            StatusText.Text = $"NOT swapped: {Path.GetFileName(produced)} has {frames} frames but " +
+                              $"{Path.GetFileName(oldPath)} has {target.PictureCount}. The file was written and " +
+                              "left in place, but using it would move every frame number in the project.";
+            return;
+        }
+
+        long before = new FileInfo(oldPath).Length, after = new FileInfo(produced).Length;
+        var confirm = new ConfirmDialog(
+            "Use the blanked video?",
+            $"{Path.GetFileName(produced)} has the same {frames:N0} frames as the original, so every scene, " +
+            $"move, death and slot keeps pointing at what it points at now.\n\n" +
+            $"{before / 1024.0 / 1024:N0} MB  →  {after / 1024.0 / 1024:N0} MB " +
+            $"({100 - after * 100.0 / Math.Max(before, 1):0.#}% smaller)\n\n" +
+            "The original file is left on disk. Ctrl+Z undoes the swap.",
+            "Use the blanked file");
+        if (await confirm.ShowDialog<bool>(this) != true)
+        {
+            StatusText.Text = $"Wrote {Path.GetFileName(produced)} — the project still uses the original.";
+            return;
+        }
+
+        MarkDirty();
+        if (_engines.Remove(index, out FrameEngine? open)) open.Dispose();
+        if (_activeVideo == index) _activeVideo = -1;
+        target.Path = ProjectFile.RelativizeVideoPath(_projectPath, produced);
+        target.FileLength = after;
+        SaveProject();
+
+        // Pictures inside the span are black now, but the cached thumbnails still
+        // show the footage that used to be there — a scene list that lies about
+        // what the game will actually play.
+        if (dialog.BlankedSpan is { } span) DropPicturesInSpan(target, span);
+
+        UpdateProjectUi();
+        await ActivateVideoAsync(index);
+        await FillPicturesWaitingOnVideoAsync();
+        StatusText.Text = $"Now using {Path.GetFileName(produced)} — {frames:N0} frames, " +
+                          $"{100 - after * 100.0 / Math.Max(before, 1):0.#}% smaller (Ctrl+Z to undo).";
+    }
+
+    /// <summary>
+    /// Deletes the cached pictures for every scene and still slot whose frame
+    /// falls inside a blanked span, so they are decoded again from the new file.
+    /// Frames are file-local here; the slots hold global numbers.
+    /// </summary>
+    private void DropPicturesInSpan(VideoSource video, FfmpegCommand.BlankSpan span)
+    {
+        if (_project == null || _projectPath == null) return;
+        string cacheDir = ProjectFile.CacheDir(_projectPath);
+        int firstGlobal = video.GlobalBase + span.FirstFrame;
+        int lastGlobal = video.GlobalBase + span.LastFrame;
+
+        void Drop(string file)
+        {
+            try { if (File.Exists(file)) File.Delete(file); }
+            catch (Exception) { /* a locked thumbnail is not worth failing the swap over */ }
+        }
+
+        foreach (Clip clip in _project.Clips)
+        {
+            if (clip.StartFrame < firstGlobal || clip.StartFrame > lastGlobal) continue;
+            Drop(Path.Combine(cacheDir, clip.Id + ".png"));
+            InvalidateSceneItem(clip.Id);
+        }
+        foreach (int frame in _project.Slots.Stills.Values.Distinct())
+            if (frame >= firstGlobal && frame <= lastGlobal)
+                Drop(Path.Combine(cacheDir, $"frame-{frame}.png"));
+    }
+
+    /// <summary>Re-times a clip to the project's frame rate, then offers to add it.</summary>
+    private async void OnChangeFrameRate(object? sender, RoutedEventArgs e)
+    {
+        StopPlayback();
+        var dialog = new VideoToolDialog(_settings, VideoToolMode.FrameRate, _project, _projectPath);
+        await dialog.ShowDialog(this);
+        if (dialog.ProducedPath is not { } produced) return;
+
+        if (_project == null || _projectPath == null)
+        {
+            StatusText.Text = $"Wrote {Path.GetFileName(produced)} at {dialog.ProducedFps:0.###} fps.";
+            return;
+        }
+
+        // Offering to add a clip the project cannot take would be a promise the
+        // fps rule immediately breaks — every video in a game shares one rate.
+        double projectFps = _project.Videos.Count > 0 ? _project.Videos[0].Fps : dialog.ProducedFps;
+        if (Math.Abs(projectFps - dialog.ProducedFps) > 0.01)
+        {
+            StatusText.Text = $"Wrote {Path.GetFileName(produced)} at {dialog.ProducedFps:0.###} fps. Not added: " +
+                              $"this project's videos are {projectFps:0.###} fps, and a game's videos must all " +
+                              "share one rate. Convert to that rate to add it.";
+            return;
+        }
+
+        var confirm = new ConfirmDialog(
+            "Add the converted clip?",
+            $"{Path.GetFileName(produced)} is now {dialog.ProducedFps:0.###} fps, so it matches the rest of " +
+            "this project's video and can be added to it.",
+            "Add to the project");
+        if (await confirm.ShowDialog<bool>(this) != true)
+        {
+            StatusText.Text = $"Wrote {Path.GetFileName(produced)} at {dialog.ProducedFps:0.###} fps " +
+                              "(not added to the project).";
+            return;
+        }
+
+        if (await TryAddVideoAsync(produced)) await FillPicturesWaitingOnVideoAsync();
     }
 
     private static bool IsM2vStream(string path)
@@ -1193,6 +1384,7 @@ public partial class MainWindow : Window
             int index = _project.Videos.Count - 1;
             _engines[index] = engine;
             _videoItems.Add(new VideoItem { Index = index, Source = source });
+            BlankFramesButton.IsEnabled = true; // the first video unlocks it
             MarkDirty();
             SaveProject();
             _suppressVideoSelection = true;
@@ -1275,7 +1467,7 @@ public partial class MainWindow : Window
             SaveProject();
             GameSetup.Refresh();
         }
-        if (chapterScenes > 0) await GenerateMissingThumbnailsAsync();
+        if (chapterScenes > 0 || added > 0) await FillPicturesWaitingOnVideoAsync();
 
         int skipped = dialog.Produced.Count - added - refreshed;
         if (added == 0 && refreshed == 0 && languagesAdded == 0)

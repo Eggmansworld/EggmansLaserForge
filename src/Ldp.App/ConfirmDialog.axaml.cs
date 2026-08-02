@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
-using Avalonia.Markup.Xaml;
 
 namespace Ldp.App;
 
@@ -21,8 +20,6 @@ public partial class ConfirmDialog : Window
         BodyText.Text = body;
         OkButton.Content = confirmLabel;
     }
-
-    private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private void OnConfirm(object? sender, RoutedEventArgs e) => Close(true);
 

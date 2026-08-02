@@ -268,7 +268,7 @@ public partial class GameSetupView : UserControl
 
             var grid = new Grid
             {
-                ColumnDefinitions = new ColumnDefinitions($"34,{ThumbWidth + 10},*,Auto"),
+                ColumnDefinitions = new ColumnDefinitions($"34,{ThumbWidth + 10},*,Auto,Auto"),
                 Margin = new Thickness(0, 1),
             };
 
@@ -314,6 +314,24 @@ public partial class GameSetupView : UserControl
             Grid.SetColumn(name, 2);
             grid.Children.Add(name);
 
+            // Death[] is written as a frame range, and which frames a death covers
+            // is the thing being checked when this table is open — against the
+            // video, against another death, against a level's own footage.
+            var range = new TextBlock
+            {
+                Text = scene == null
+                    ? ""
+                    : $"{scene.StartFrame.ToString().PadLeft(6, '0')} – " +
+                      $"{scene.EndFrame.ToString().PadLeft(6, '0')}  ({scene.FrameCount} fr)",
+                Foreground = (IBrush?)this.FindResource("FrameText"),
+                FontFamily = new FontFamily("Consolas,monospace"),
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(10, 0, 10, 0),
+            };
+            Grid.SetColumn(range, 3);
+            grid.Children.Add(range);
+
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
             if (pooled)
             {
@@ -343,7 +361,7 @@ public partial class GameSetupView : UserControl
                     Margin = new Thickness(0, 0, 8, 0),
                 });
             }
-            Grid.SetColumn(buttons, 3);
+            Grid.SetColumn(buttons, 4);
             grid.Children.Add(buttons);
 
             rows.Add(new Border { Classes = { "slotrow" }, Child = grid });

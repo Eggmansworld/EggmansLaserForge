@@ -183,6 +183,7 @@ public static class ProjectTest
             MoveTokensTest.Run(Check);
             DeathScenesTest.Run(Check);
             MoveTimingTest.Run(Check);
+            DialogWiringTest.Run(Check);
             Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
             return failures == 0 ? 0 : 1;
         }
@@ -1171,6 +1172,9 @@ public static class ProjectTest
         MoveTimingTest.Run(Check);
 
         LevelCfgFilesTest.Run(Check);
+
+        // ---- Dialogs whose named controls are wired by the generator ----
+        DialogWiringTest.Run(Check);
 
         Console.WriteLine(failures == 0 ? "ALL PASS" : $"{failures} FAILURES");
         return failures == 0 ? 0 : 1;

@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Markup.Xaml;
 
 namespace Ldp.App;
 
@@ -35,8 +34,6 @@ public partial class ImportReportDialog : Window
         _warnings = string.Join(Environment.NewLine, warnings.Select((w, i) => $"{i + 1}.  {w}"));
         WarningsText.Text = _warnings;
     }
-
-    private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
 
     private async void OnCopy(object? sender, RoutedEventArgs e)
     {

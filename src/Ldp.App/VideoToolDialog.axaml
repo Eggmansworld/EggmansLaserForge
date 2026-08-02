@@ -1,0 +1,169 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="Ldp.App.VideoToolDialog"
+        Title="Video tool"
+        Width="800" Height="700" MinWidth="680" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BgWindow}">
+
+    <DockPanel Margin="0">
+
+        <!-- Pinned bottom: progress + actions -->
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource BgBar}"
+                BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0" Padding="18,12">
+            <StackPanel Spacing="8">
+                <StackPanel Name="ProgressArea" Spacing="4" IsVisible="False">
+                    <ProgressBar Name="RunProgress" Minimum="0" Maximum="1" Height="8"/>
+                    <TextBlock Name="ProgressStatus" Foreground="{DynamicResource FgPrimary}"
+                               FontSize="14" FontWeight="SemiBold" Text=""/>
+                    <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="8" Height="110">
+                        <ScrollViewer Name="OutputScroll">
+                            <TextBlock Name="OutputLog" Foreground="{DynamicResource FgMuted}"
+                                       FontFamily="Consolas,monospace" FontSize="12" TextWrapping="Wrap" Text=""/>
+                        </ScrollViewer>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Name="RunButton" Content="▶ Run" IsEnabled="False" Click="OnRun"/>
+                    <Button Name="CloseButton" Content="Close" Click="OnClose"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer>
+            <StackPanel Margin="18" Spacing="14">
+
+                <TextBlock Name="HeadlineText" FontSize="18" FontWeight="Bold"
+                           Foreground="{DynamicResource FgPrimary}" Text=""/>
+                <TextBlock Name="BlurbText" TextWrapping="Wrap" Foreground="{DynamicResource FgMuted}"
+                           FontSize="13" Text=""/>
+
+                <!-- FFMPEG -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="FFMPEG" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <TextBlock Name="FfmpegStatus" TextWrapping="Wrap" FontSize="13"
+                                   Foreground="{DynamicResource AccentAmber}" Text="Locate ffmpeg.exe to begin."/>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Name="LocateFfmpegButton" Content="Locate ffmpeg.exe…" Click="OnLocateFfmpeg"/>
+                            <TextBlock Name="FfmpegDownloadLink" VerticalAlignment="Center" FontSize="13"
+                                       Foreground="{DynamicResource Accent}" Cursor="Hand"
+                                       Text="Download the full build (gyan.dev)" PointerPressed="OnOpenFfmpegDownload"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- SOURCE -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Name="SourceHeader" Text="SOURCE" Foreground="{DynamicResource FgFaint}"
+                                   FontSize="11" FontWeight="Bold"/>
+
+                        <!-- Blanking works on a video already in the project: the whole
+                             point is keeping its frame numbers, which only exist here. -->
+                        <ComboBox Name="VideoCombo" IsVisible="False" HorizontalAlignment="Stretch"
+                                  SelectionChanged="OnVideoChanged"/>
+
+                        <!-- Re-timing works on a file that is NOT in the project yet,
+                             because it deliberately changes the frame count. -->
+                        <StackPanel Name="PickFilePanel" IsVisible="False" Orientation="Horizontal" Spacing="8">
+                            <Button Name="PickFileButton" Content="Choose .m2v…" Click="OnPickFile"/>
+                            <TextBlock Name="PickedFileText" VerticalAlignment="Center" FontSize="13"
+                                       Foreground="{DynamicResource FgMuted}" Text="No file chosen."
+                                       TextTrimming="CharacterEllipsis"/>
+                        </StackPanel>
+
+                        <TextBlock Name="SourceInfo" FontFamily="Consolas,monospace" FontSize="12"
+                                   Foreground="{DynamicResource FrameText}" Text="" TextWrapping="Wrap"/>
+                        <TextBlock Name="SourceWarning" IsVisible="False" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource AccentAmber}" Text=""/>
+                    </StackPanel>
+                </Border>
+
+                <!-- BLANK RANGE -->
+                <Border Name="BlankPanel" IsVisible="False" Background="{DynamicResource BgPanel}"
+                        CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="FRAMES TO BLACK OUT" Foreground="{DynamicResource FgFaint}"
+                                   FontSize="11" FontWeight="Bold"/>
+
+                        <RadioButton Name="FromStartRadio" GroupName="Span" IsChecked="True" Click="OnSpanModeChanged"
+                                     Content="From the start of the file"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="26,0,0,4" VerticalAlignment="Center">
+                            <TextBlock Text="up to and including frame" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                            <NumericUpDown Name="StartModeLastBox" Width="150" Value="0" Minimum="0" Maximum="99999999"
+                                           Increment="1" FormatString="0" ValueChanged="OnSpanValueChanged"/>
+                        </StackPanel>
+
+                        <RadioButton Name="RangeRadio" GroupName="Span" Click="OnSpanModeChanged"
+                                     Content="A range inside the file"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" Margin="26,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="from frame" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                            <NumericUpDown Name="RangeFirstBox" Width="150" Value="0" Minimum="0" Maximum="99999999"
+                                           Increment="1" FormatString="0" IsEnabled="False" ValueChanged="OnSpanValueChanged"/>
+                            <TextBlock Text="up to and including" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                            <NumericUpDown Name="RangeLastBox" Width="150" Value="0" Minimum="0" Maximum="99999999"
+                                           Increment="1" FormatString="0" IsEnabled="False" ValueChanged="OnSpanValueChanged"/>
+                        </StackPanel>
+
+                        <TextBlock Name="SpanSummary" TextWrapping="Wrap" FontSize="13" Margin="0,4,0,0"
+                                   Foreground="{DynamicResource FgPrimary}" Text=""/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                                   Text="Both ends are included, and the numbers are the ones on the app's own frame counter for this video. Every frame stays exactly where it is — only the picture is replaced — so scenes, deaths and slots outside the span are untouched."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- FRAME RATE -->
+                <Border Name="FpsPanel" IsVisible="False" Background="{DynamicResource BgPanel}"
+                        CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="FRAME RATE" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Text="Convert to" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource FgPrimary}" FontSize="13"/>
+                            <ComboBox Name="TargetFpsCombo" MinWidth="220" SelectionChanged="OnTargetFpsChanged"/>
+                        </StackPanel>
+                        <TextBlock Name="FpsSummary" TextWrapping="Wrap" FontSize="13"
+                                   Foreground="{DynamicResource FgPrimary}" Text=""/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource FgFaint}" FontSize="12"
+                                   Text="This is a real re-timing, not a relabel: frames are added or dropped so the clip plays at the right speed. The frame count therefore changes, which is why it is meant for a clip you have not added to the project yet."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- OUTPUT -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="OUTPUT" Foreground="{DynamicResource FgFaint}" FontSize="11" FontWeight="Bold"/>
+                        <TextBlock Name="OutputPathText" FontFamily="Consolas,monospace" FontSize="12"
+                                   Foreground="{DynamicResource FgMuted}" TextWrapping="Wrap" Text=""/>
+                        <TextBlock Name="QualityNote" FontSize="12" Foreground="{DynamicResource FgFaint}"
+                                   TextWrapping="Wrap"
+                                   Text="Encoded with the same settings as every other conversion here: -qscale:v 4 -b:v 6000k, mpeg2video."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- COMMAND -->
+                <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Left" Text="COMMAND" Foreground="{DynamicResource FgFaint}"
+                                       FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <Button DockPanel.Dock="Right" Name="CopyButton" Content="Copy command"
+                                    HorizontalAlignment="Right" FontSize="12" Padding="8,3" Click="OnCopyCommand"/>
+                        </DockPanel>
+                        <Border Background="{DynamicResource BgCanvas}" CornerRadius="4" Padding="10">
+                            <TextBox Name="CommandBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                                     FontFamily="Consolas,monospace" FontSize="12" BorderThickness="0"
+                                     Background="Transparent" MinHeight="56"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

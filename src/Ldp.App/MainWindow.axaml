@@ -30,6 +30,9 @@
                         <MenuItem Header="_Tools" Padding="10,6">
                             <MenuItem Name="ConvertVideoButton" Header="🎞 Convert Video → M2V…" Click="OnConvertVideo"/>
                             <MenuItem Name="StillImageButton" Header="🖼 Still Image → M2V…" Click="OnStillImage"/>
+                            <MenuItem Name="BlankFramesButton" Header="⬛ Black Out Frames…" IsEnabled="False"
+                                      Click="OnBlankFrames"/>
+                            <MenuItem Name="ChangeFpsButton" Header="⏩ Change Frame Rate…" Click="OnChangeFrameRate"/>
                             <MenuItem Name="NormalizeWindowsButton" Header="⏱ Reset All Move Timings…" IsEnabled="False"
                                       Click="OnNormalizeWindows"/>
                             <MenuItem Name="ImportChaptersButton" Header="🕮 Import Chapters as Scenes…" IsEnabled="False"

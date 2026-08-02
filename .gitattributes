@@ -7,3 +7,10 @@
 # Windows checks them out as CRLF and ships them that way.
 *.cfg    text eol=lf
 *.singe  text eol=lf
+
+# Source is stored LF. Nothing reads a CR here, but a checkout that flips a few
+# files to CRLF rewrites every line of them in the next diff, which buries the
+# real change - and it has happened twice, both times after a rebase.
+*.cs     text eol=lf
+*.axaml  text eol=lf
+*.md     text eol=lf
