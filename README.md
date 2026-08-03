@@ -68,7 +68,7 @@ AI-generated video, or remaking a classic. No programming required.
 
 | You need | Details |
 |---|---|
-| **Windows 10 or 11, 64-bit** | The app is Windows-only for now. Nothing to install beyond the app itself (see below). |
+| **Windows 10 or 11, 64-bit**, 1680x1050 minimum resolution| The app is Windows-only for now. Nothing to install beyond the app itself (see below). |
 | **Hypseus Singe** | The emulator that actually runs your game. It's a separate free download — the app links you to it and helps you point at it. **Grab the latest Windows release (64-bit)** — both the current v3.x (SDL3) line and the older v2.12.1 work fine. |
 | **Your video** | A single MPEG-2 video file with the extension **`.m2v`**. This is the picture track your game plays. (Converting other formats to `.m2v` is done with a tool like FFmpeg — outside this app.) |
 | **Your audio** *(optional but normal)* | An **`.ogg`** audio file that matches your video, so you hear sound while play-testing and in the finished game. |
