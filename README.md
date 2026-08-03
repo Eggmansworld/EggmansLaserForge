@@ -86,7 +86,7 @@ You do **not** need the .NET runtime, Visual Studio, or any developer tools to
 ## 3. Installing and running the app
 
 1. Go to the [**Releases** page](https://github.com/Eggmansworld/EggmansLaserForge/releases)
-   and download the file named **`EggmansLaserForge-0.1.15-win-x64.zip`**.
+   and download the latest release.
 2. **Right-click the downloaded ZIP → Extract All…** and pick a folder you can
    find again (for example `C:\LaserForge`). Don't run it from inside the ZIP.
 3. Open the extracted folder and double-click **`LaserForge.exe`**.
@@ -128,28 +128,30 @@ numbers for you.
 
 ## 5. Your first project, step by step
 
-Choose **File → New Project…** and a two-step wizard appears.
+Open the app and and a wizard appears.
 
 **Step 1 — Point at your Hypseus Singe emulator.**
 Your finished game has to live *inside* the emulator's `singe` folder so it can
 find everything it needs. Click **Locate Hypseus folder…** and select the
 folder that contains `hypseus.exe`. Don't have Hypseus yet? The wizard has a
-direct download link — grab the **Windows 64-bit** build, extract it, then come
-back and point at it.
+direct download link — grab the latest **Windows 64-bit** build, extract it, then
+come back and point at it.
 
 **Step 2 — Name the game folder.**
 Type a short name with **no spaces** (spaces become underscores automatically),
-for example `Sonic_the_Hedgehog_1996`. This one name becomes the game's folder,
+for example `Sonic_the_Hedgehog_1996`. This name becomes the game's folder,
 its `.singe` script file, and your project file. The wizard shows you exactly
 where it will be created.
 
 Click **Create Game Project**. The app makes the folder inside Hypseus's
 `singe` directory and you're ready to work.
 
-**Then: add your video.** In the left **VIDEOS** panel click **＋ Add Video…**
-and choose your `.m2v` file. The first time, the app *indexes* the video
-(builds its frame map) — you'll see a short progress bar. After that, seeking
-is instant, and the index is cached so it's only done once per video.
+**Then: add your video.** It is recommended to put all .m2v and .ogg video files
+you want to use inside your game's "Video" folder. In the left **VIDEOS** panel
+click **＋ Add Video…** and choose your `.m2v` file. The first time, the app
+*indexes* the video (builds its frame map) — you'll see a short progress bar.
+After that, seeking is instant, and the index is cached so it's only done once
+per video.
 
 ---
 
@@ -169,7 +171,7 @@ Around those, the layout stays constant:
 - **Right — SCENES and INTERACTIONS:** your marked scenes (with thumbnails) on
   top, and the player moves for the selected scene below.
 - **Bottom — status bar:** a one-line status message, with a **Log ▲** button
-  that slides open a detailed log (useful when something goes wrong).
+  that slides open a detailed log drawer (useful when something goes wrong).
 
 **The transport bar** (under the video) is your remote control:
 
@@ -186,7 +188,7 @@ Around those, the layout stays constant:
 
 ## 7. Marking scenes
 
-A **scene** (also called a clip) is a named stretch of video — "Level 2 intro,"
+A **scene** (also called a clip) is a named piece of video — "Level 2 intro,"
 "the jump-the-canyon death," and so on. Scenes are the building blocks you'll
 wire together later.
 
@@ -448,7 +450,8 @@ original is dead weight — but its **frame numbers are not**, because every dea
 and still slot in the imported script points into that same file. Blacking those
 frames out keeps every number exactly where it is and drops most of the bytes
 (around 85% of the blanked span). Both ends of the span are **included**, and the
-numbers are the ones on the app's own frame counter.
+numbers are the ones on the app's own frame counter. This feature was created for
+use in the reimagined "Altered Carbon: Resleeved" game.
 
 Before the app will use the result it re-reads it and checks the frame count
 matches the original **exactly**. If it doesn't, the file is left on disk and
@@ -461,7 +464,9 @@ counted in frames, so a 25 fps clip can't join a 29.97 fps project until it's
 converted. The target is preselected to your project's rate, and the frame count
 before and after is shown before you run it. This is a real re-timing, not a
 relabel — frames are added or dropped so the clip plays at the right speed —
-which is why it's meant for a clip you have **not** added to the project yet.
+which is why it's meant for a clip you have **not** added to the project yet. This
+is perfect for extra videos you may want to add to your game, such as movie or TV
+trailers you download from other sources that may have a different frame rate.
 
 ---
 
