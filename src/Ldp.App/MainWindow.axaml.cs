@@ -2877,7 +2877,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>One entry in the per-move death picker.</summary>
-    private sealed record DeathChoice(string Label, Guid? Clip, bool NoDeath)
+    private sealed record DeathChoice(string Label, Guid? Clip, bool Random)
     {
         public override string ToString() => Label;
     }
@@ -2914,8 +2914,16 @@ public partial class MainWindow : Window
 
         List<DeathChoice> choices = [
             new($"Default — {inherited}", null, false),
-            new("No death (the scene shows the failure)", null, true),
+            new("Random death — the framework picks one (Death# 0)", null, true),
         ];
+
+        // A move the script marked optional (-1 / -2) is not a move whose death
+        // is unset — missing it is meant to cost nothing. Say so, rather than
+        // showing "Default" and inviting someone to "fix" it.
+        if (move.RawDeathIndex is { } optional)
+            choices.Insert(0, new(optional == -2
+                ? "Optional move, scores if taken (script Death# -2)"
+                : $"Optional — missing it costs nothing (script Death# {optional})", null, false));
 
         Dictionary<Guid, int> numbers = _project.DeathNumbers();
         foreach (Guid id in _project.DeathScenes())
@@ -2923,9 +2931,10 @@ public partial class MainWindow : Window
 
         _fillingMoveDeath = true;
         MoveDeathCombo.ItemsSource = choices;
+        int inheritIndex = move.RawDeathIndex is null ? 0 : 1;
         MoveDeathCombo.SelectedIndex = move.DeathClipId is { } picked
             ? Math.Max(0, choices.FindIndex(c => c.Clip == picked))
-            : move.ExplicitNoDeath ? 1 : 0;
+            : move.RandomDeath ? inheritIndex + 1 : 0;
         // A skip never dies, so the framework writes 0 for it regardless.
         MoveDeathRow.IsEnabled = move.Input != InputKind.Skip;
         _fillingMoveDeath = false;
@@ -2938,10 +2947,14 @@ public partial class MainWindow : Window
         if (MoveDeathCombo.SelectedItem is not DeathChoice choice) return;
 
         InteractionMarker move = item.Marker;
-        if (move.DeathClipId == choice.Clip && move.ExplicitNoDeath == choice.NoDeath) return;
+        if (move.DeathClipId == choice.Clip && move.RandomDeath == choice.Random) return;
 
         move.DeathClipId = choice.Clip;
-        move.ExplicitNoDeath = choice.NoDeath;
+        move.RandomDeath = choice.Random;
+        // Choosing anything from this list is a decision about the death, so the
+        // script's optional code no longer applies - keeping it would silently
+        // win back over the choice on export.
+        if (MoveDeathCombo.SelectedIndex != 0) move.RawDeathIndex = null;
 
         if (SelectedClip is { } clip)
             AfterInteractionChange(clip, $"Death for the move at {move.Frame}: {choice.Label}");

@@ -20,6 +20,7 @@ public static class DeathScenesTest
 {
     public static void Run(Action<string, bool> Check)
     {
+        RandomDeathChecks(Check);
         OrderChecks(Check);
         FallbackChecks(Check);
         ExportChecks(Check);
@@ -118,7 +119,7 @@ public static class DeathScenesTest
         // Three moves, one per state the exporter resolves.
         play.Interactions.Add(new InteractionMarker { Frame = 200, Input = InputKind.Up });
         play.Interactions.Add(new InteractionMarker { Frame = 400, Input = InputKind.Down, DeathClipId = moveDeath.Id });
-        play.Interactions.Add(new InteractionMarker { Frame = 600, Input = InputKind.Left, ExplicitNoDeath = true });
+        play.Interactions.Add(new InteractionMarker { Frame = 600, Input = InputKind.Left, RandomDeath = true });
 
         WireDeath(project, play.Id, wireDeath.Id);
 
@@ -150,5 +151,57 @@ public static class DeathScenesTest
               fallbackResult.Script.Contains("{200, 220, UP, 1}"));
         Check("export: a move covered by the fallback draws no missing-death warning",
               !fallbackResult.Warnings.Any(w => w.Contains("no death scene")));
+    }
+
+    /// <summary>
+    /// Death# 0 is the framework's RANDOM death (main.singe:6324 —
+    /// <c>q = math.random(totalDeath)</c>), not "no death". This app modelled it
+    /// under the name ExplicitNoDeath and offered it in the picker as "No death
+    /// (the scene shows the failure)", so anyone choosing it got the opposite of
+    /// what they were promised.
+    ///
+    /// The flag was renamed to say what it does. Its JSON name is pinned, because
+    /// a silent rename would drop the flag from every project already saved —
+    /// turning a deliberate Death# 0 back into "unset", which then inherits the
+    /// scene's death and changes what the exported game plays.
+    /// </summary>
+    private static void RandomDeathChecks(Action<string, bool> Check)
+    {
+        var move = new InteractionMarker { Frame = 100, Input = InputKind.Left, RandomDeath = true };
+        var project = new LdpProject { Name = "Death Zero" };
+        var scene = new Clip { Name = "S", StartFrame = 0, EndFrame = 500 };
+        scene.Interactions.Add(move);
+        project.Clips.Add(scene);
+        // A scene only reaches setupMoves when a level holds it.
+        project.AddLevel().SceneIds.Add(scene.Id);
+
+        string json = ProjectFile.Serialize(project);
+        Check("death0: still serialises under its original JSON name",
+              json.Contains("\"ExplicitNoDeath\": true", StringComparison.Ordinal));
+        Check("death0: never writes the new name to disk",
+              !json.Contains("RandomDeath", StringComparison.Ordinal));
+
+        // A project saved by 0.1.16 or earlier must come back with the flag set.
+        const string legacy = """
+            {
+              "Name": "Legacy",
+              "Clips": [
+                { "Name": "S", "StartFrame": 0, "EndFrame": 500,
+                  "Interactions": [
+                    { "Frame": 100, "Input": "Left", "ExplicitNoDeath": true }
+                  ] }
+              ]
+            }
+            """;
+        LdpProject loaded = ProjectFile.Deserialize(legacy);
+        Check("death0: a project saved before the rename still loads the flag",
+              loaded.Clips[0].Interactions[0].RandomDeath);
+        Check("death0: round trips through save and load",
+              ProjectFile.Deserialize(ProjectFile.Serialize(project))
+                  .Clips[0].Interactions[0].RandomDeath);
+
+        // And it still exports as 0 rather than inheriting a death.
+        Check("death0: exports as Death# 0",
+              SingeExporter.Export(project).Script.Contains(", LEFT, 0}", StringComparison.Ordinal));
     }
 }

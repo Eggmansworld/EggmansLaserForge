@@ -419,12 +419,18 @@ public sealed class SingeGen
                 {
                     InteractionMarker move = moves[n];
                     int end = move.EndFrameOverride ?? move.Frame + baseWindow;
-                    int death = move.Input == InputKind.Skip || move.ExplicitNoDeath ? 0
-                        : move.DeathClipId is { } d && _deathIndex.TryGetValue(d, out int di) ? di
+                    // A move the script marked optional (-1 / -2) keeps that code
+                    // unless an actual death has since been chosen for it, and is
+                    // never warned about: it is not missing a death, it is
+                    // declaring that missing it costs nothing.
+                    int death = move.DeathClipId is { } d && _deathIndex.TryGetValue(d, out int di) ? di
+                        : move.Input == InputKind.Skip || move.RandomDeath ? 0
+                        : move.RawDeathIndex is { } raw ? raw
                         : _sceneDefaultDeath.GetValueOrDefault(scene.Id);
-                    if (death == 0 && move.Input != InputKind.Skip && !move.ExplicitNoDeath)
-                        _warnings.Add($"'{scene.Name}' move at {move.Frame} has no death scene " +
-                                      "(assign one to the move or wire the scene's Death port)");
+                    if (death == 0 && move.Input != InputKind.Skip && !move.RandomDeath)
+                        _warnings.Add($"'{scene.Name}' move at {move.Frame} has no death scene, so it exports " +
+                                      "as Death# 0 - which the framework plays as a RANDOM death, not as no " +
+                                      "death (assign one to the move, or wire the scene's Death port)");
                     string alt = SingeExporter.AltInputToken(move) is { } a ? $", {a}" : "";
                     sb.AppendLine($"\t\t\tmove[{n + 1}] = {{{move.Frame}, {end}, {SingeExporter.InputToken(move)}, {death}{alt}}}");
                 }

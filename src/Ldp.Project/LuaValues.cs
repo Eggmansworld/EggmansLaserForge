@@ -18,6 +18,15 @@ namespace Ldp.Project;
 /// accepts digits after the '='. Those slots used to import as unset, silently,
 /// because a regex miss looks exactly like an absent line.
 ///
+/// The operand order is not fixed either. An author who thinks of a move as a
+/// DEADLINE writes the window backwards from it:
+///
+///     gap = 10
+///     move[1] = {5679-gap, 5679, BUTTON1, 2}
+///
+/// so the number comes first and the name second. Same arithmetic, mirrored,
+/// and a pattern that only accepts `name +/- number` misses every line of it.
+///
 /// A value may also be built on another derived value, so resolution runs to a
 /// fixed point rather than in one pass. Anything still unresolved after that is
 /// reported instead of being guessed at — a forward reference to a name the
@@ -29,18 +38,60 @@ public static partial class LuaValues
     private const int MaxPasses = 16;
 
     /// <summary>
-    /// `name = 123`, `name = other`, or `name = other +12` / `other - 4`.
+    /// `name = 123`, `name = other`, `name = other +12`, or `name = 5679-other`.
     /// Anchored per line, trailing comment allowed. Anything more involved than
     /// one addition is left alone deliberately: guessing at arithmetic nobody
     /// writes in these scripts would risk inventing a frame number.
     /// </summary>
-    [GeneratedRegex(@"^[ \t]*([A-Za-z_]\w*)[ \t]*=[ \t]*(?:(\d+)|([A-Za-z_]\w*)(?:[ \t]*([+-])[ \t]*(\d+))?)[ \t]*(?:--.*)?$",
+    [GeneratedRegex(@"^[ \t]*(?<lhs>[A-Za-z_]\w*)[ \t]*=[ \t]*(?:(?<num>\d+)[ \t]*(?<numOp>[+-])[ \t]*(?<numName>[A-Za-z_]\w*)|(?<lit>\d+)|(?<name>[A-Za-z_]\w*)(?:[ \t]*(?<op>[+-])[ \t]*(?<delta>\d+))?)[ \t]*(?:--.*)?$",
                     RegexOptions.Multiline)]
     private static partial Regex AssignmentPattern();
 
-    /// <summary>An inline value: a literal, or a name with an optional offset.</summary>
-    [GeneratedRegex(@"^[ \t]*(?:(\d+)|([A-Za-z_]\w*)(?:[ \t]*([+-])[ \t]*(\d+))?)[ \t]*$")]
+    /// <summary>An inline value: a literal, or a name and a number either way round.</summary>
+    [GeneratedRegex(@"^[ \t]*(?:(?<num>\d+)[ \t]*(?<numOp>[+-])[ \t]*(?<numName>[A-Za-z_]\w*)|(?<lit>\d+)|(?<name>[A-Za-z_]\w*)(?:[ \t]*(?<op>[+-])[ \t]*(?<delta>\d+))?)[ \t]*$")]
     private static partial Regex ValuePattern();
+
+    /// <summary>
+    /// The expression forms above, reduced to one shape: take
+    /// <see cref="Base"/>'s value, negate it when the name was subtracted FROM a
+    /// number, then add <see cref="Delta"/>. `other +12`, `other -12`,
+    /// `5679-other` and `5679+other` are all this.
+    /// </summary>
+    private readonly record struct Derived(string Base, int Delta, bool NegateBase)
+    {
+        public int Apply(int baseValue) => (NegateBase ? -baseValue : baseValue) + Delta;
+    }
+
+    /// <summary>Reads one match's right-hand side. Null value means it is a
+    /// literal (already in <paramref name="literal"/>); null both means the
+    /// right-hand side was a keyword rather than arithmetic.</summary>
+    private static (int? Literal, Derived? Expression) ReadOperands(Match m)
+    {
+        if (m.Groups["lit"].Success) return (int.Parse(m.Groups["lit"].Value), null);
+
+        if (m.Groups["num"].Success)
+        {
+            // `5679 - gap` / `5679 + gap`: the literal is the constant and the
+            // name carries the sign.
+            string name = m.Groups["numName"].Value;
+            if (IsKeyword(name)) return (null, null);
+            return (null, new Derived(name, int.Parse(m.Groups["num"].Value),
+                                      m.Groups["numOp"].Value == "-"));
+        }
+
+        // `altCfg = false` is an assignment, not arithmetic. Without this the
+        // keyword reads as a base name nothing ever defines, and every boolean
+        // in the script would be reported as an unresolved frame.
+        string baseName = m.Groups["name"].Value;
+        if (IsKeyword(baseName)) return (null, null);
+
+        int delta = m.Groups["delta"].Success
+            ? (m.Groups["op"].Value == "-" ? -1 : 1) * int.Parse(m.Groups["delta"].Value)
+            : 0;
+        return (null, new Derived(baseName, delta, false));
+    }
+
+    private static bool IsKeyword(string name) => name is "true" or "false" or "nil";
 
     public sealed record Table(IReadOnlyDictionary<string, int> Values, IReadOnlyList<string> Unresolved)
     {
@@ -61,31 +112,25 @@ public static partial class LuaValues
         script = script.Replace("\r\n", "\n").Replace('\r', '\n');
 
         Dictionary<string, int> values = [];
-        // name -> (base name, delta). Kept in encounter order so a later
-        // assignment to the same name overwrites an earlier one either way.
-        Dictionary<string, (string Base, int Delta)> derived = [];
+        // Kept in encounter order so a later assignment to the same name
+        // overwrites an earlier one either way.
+        Dictionary<string, Derived> derived = [];
 
         foreach (Match m in AssignmentPattern().Matches(script))
         {
-            string name = m.Groups[1].Value;
-            if (m.Groups[2].Success)
+            string name = m.Groups["lhs"].Value;
+            (int? literal, Derived? expression) = ReadOperands(m);
+
+            if (literal is { } fixedValue)
             {
-                values[name] = int.Parse(m.Groups[2].Value);
+                values[name] = fixedValue;
                 derived.Remove(name);
-                continue;
             }
-
-            // `altCfg = false` is an assignment, not arithmetic. Without this the
-            // keyword reads as a base name nothing ever defines, and every
-            // boolean in the script would be reported as an unresolved frame.
-            string baseName = m.Groups[3].Value;
-            if (baseName is "true" or "false" or "nil") continue;
-
-            int delta = m.Groups[5].Success
-                ? (m.Groups[4].Value == "-" ? -1 : 1) * int.Parse(m.Groups[5].Value)
-                : 0;
-            derived[name] = (baseName, delta);
-            values.Remove(name);
+            else if (expression is { } expr)
+            {
+                derived[name] = expr;
+                values.Remove(name);
+            }
         }
 
         for (int pass = 0; pass < MaxPasses && derived.Count > 0; pass++)
@@ -93,9 +138,9 @@ public static partial class LuaValues
             bool progressed = false;
             foreach (string name in derived.Keys.ToList())
             {
-                (string baseName, int delta) = derived[name];
-                if (!values.TryGetValue(baseName, out int baseValue)) continue;
-                values[name] = baseValue + delta;
+                Derived expr = derived[name];
+                if (!values.TryGetValue(expr.Base, out int baseValue)) continue;
+                values[name] = expr.Apply(baseValue);
                 derived.Remove(name);
                 progressed = true;
             }
@@ -113,9 +158,10 @@ public static partial class LuaValues
     {
         Match m = ValuePattern().Match(text);
         if (!m.Success) return null;
-        if (m.Groups[1].Success) return int.Parse(m.Groups[1].Value);
-        if (!table.Values.TryGetValue(m.Groups[2].Value, out int baseValue)) return null;
-        if (!m.Groups[4].Success) return baseValue;
-        return baseValue + (m.Groups[3].Value == "-" ? -1 : 1) * int.Parse(m.Groups[4].Value);
+
+        (int? literal, Derived? expression) = ReadOperands(m);
+        if (literal is { } fixedValue) return fixedValue;
+        if (expression is not { } expr) return null;
+        return table.Values.TryGetValue(expr.Base, out int baseValue) ? expr.Apply(baseValue) : null;
     }
 }

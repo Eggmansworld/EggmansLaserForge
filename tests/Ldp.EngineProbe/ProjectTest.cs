@@ -852,7 +852,7 @@ public static class ProjectTest
         // (`currentFrame + 2 <= sceneStart`) can never be true for it.
         var badScenes = new LdpProject { Framework = GameFramework.Structure };
         var atZero = new Clip { Name = "Chapter 01", StartFrame = 0, EndFrame = 5003 };
-        atZero.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, ExplicitNoDeath = true });
+        atZero.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, RandomDeath = true });
         var silent = new Clip { Name = "Chapter 05", StartFrame = 18862, EndFrame = 21733 };
         var withSkip = new Clip { Name = "Chapter 06", StartFrame = 21734, EndFrame = 26002 };
         withSkip.Interactions.Add(new InteractionMarker
@@ -915,7 +915,7 @@ public static class ProjectTest
                     {
                         Frame = frame + 50,
                         Input = InputKind.Up,
-                        ExplicitNoDeath = true,
+                        RandomDeath = true,
                     });
                     shaped.Clips.Add(shapedScene);
                     shaped.AssignToLevel(shapedLevel, [shapedScene.Id]);
@@ -943,7 +943,7 @@ public static class ProjectTest
         var editProject = new LdpProject { Framework = GameFramework.Structure };
         editProject.Videos.Add(new VideoSource { Path = "m.m2v", GlobalBase = 0, PictureCount = 10000 });
         var edited = new Clip { Name = "Chapter 01", StartFrame = 0, EndFrame = 5003 };
-        edited.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, ExplicitNoDeath = true });
+        edited.Interactions.Add(new InteractionMarker { Frame = 1716, Input = InputKind.Right, RandomDeath = true });
         editProject.Clips.Add(edited);
         GameLevel editLevel = editProject.AddLevel("LEVEL 1");
         editProject.AssignToLevel(editLevel, [edited.Id]);

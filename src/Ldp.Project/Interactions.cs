@@ -79,12 +79,37 @@ public sealed class InteractionMarker
     public Guid? DeathClipId { get; set; }
 
     /// <summary>
-    /// True when the author deliberately wrote Death# 0 on a normal move
-    /// (e.g. the surrounding video already shows the failure). Distinct from
-    /// "unset": null DeathClipId with this false falls back to the scene's
-    /// Death wire; with this true the exporter writes 0 and doesn't warn.
+    /// True when the author deliberately wrote Death# 0 on a normal move.
+    ///
+    /// Death# 0 does NOT mean "no death" — main.singe:6324 reads it as
+    /// <c>if move[currentMove][moveDeath] == 0 then -- 0 = random death</c> and
+    /// picks one with <c>math.random(totalDeath)</c>. This app called it "no
+    /// death" in its model, its comments and its picker, which is the opposite
+    /// of what the game does. (A SKIP is different: it cannot be failed at all,
+    /// so the framework never reads its Death# and the exporter writes 0 for
+    /// one regardless.)
+    ///
+    /// Distinct from "unset": null DeathClipId with this false falls back to
+    /// the scene's Death wire; with this true the exporter writes 0 and doesn't
+    /// warn. The JSON name is kept so projects written before the rename still
+    /// load — the meaning was always Death# 0, only the label was wrong.
     /// </summary>
-    public bool ExplicitNoDeath { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("ExplicitNoDeath")]
+    public bool RandomDeath { get; set; }
+
+    /// <summary>
+    /// The script's own Death# when it is one this editor does not model — the
+    /// framework's negative codes, which are not deaths at all:
+    ///
+    ///     -1  optional move  (main.singe: miss it and play simply continues)
+    ///     -2  optional move with score
+    ///
+    /// Kept verbatim and written straight back out, the same way
+    /// <see cref="RawInput"/> keeps a token the editor cannot author. Without
+    /// it the move was dropped on import, which quietly deletes the optional
+    /// beats a game was designed around.
+    /// </summary>
+    public int? RawDeathIndex { get; set; }
 
     /// <summary>
     /// The script's own token when <see cref="Input"/> is

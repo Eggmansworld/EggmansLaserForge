@@ -13,7 +13,17 @@ public static partial class SingeImporter
 {
     public sealed record Result(int Levels, int Scenes, int Moves, int Deaths, int SlotsFilled, List<string> Warnings);
 
-    [GeneratedRegex(@"^\s*Death\[(\d+)\]\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*\}\s*(?:;?\s*--\s*(.*?)\s*)?$", RegexOptions.Multiline)]
+    /// <summary>
+    /// The Death[] table. Its two frames take the same arithmetic everything
+    /// else here does — `Death[01] = {offsetDeath+32, offsetDeath+181}` is the
+    /// ordinary way to write one, because the deaths are almost always a single
+    /// run of footage that the author counts into from one landmark.
+    ///
+    /// A pattern demanding bare digits matched none of it, and an unmatched
+    /// Death[] line looks exactly like a script with no deaths — so every move
+    /// then reported the death it names as missing.
+    /// </summary>
+    [GeneratedRegex(@"^\s*Death\[(\d+)\]\s*=\s*\{\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*,\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*\}\s*(?:;?\s*--+\s*(.*?)\s*)?$", RegexOptions.Multiline)]
     private static partial Regex DeathPattern();
 
     [GeneratedRegex(@"^\s*Level\[(\d+)\]\s*=\s*\{\s*""([^""]*)""\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)", RegexOptions.Multiline)]
@@ -35,13 +45,22 @@ public static partial class SingeImporter
 
     // Scene bounds accept the same "base + count" form the menu block uses; the
     // capture is resolved through the script's symbol table, not parsed as an int.
-    [GeneratedRegex(@"^\s*sceneStart\s*=\s*([A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\s*sceneStart\s*=\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
     private static partial Regex SceneStartPattern();
 
-    [GeneratedRegex(@"^\s*sceneEnd\s*=\s*([A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
+    [GeneratedRegex(@"^\s*sceneEnd\s*=\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)", RegexOptions.Multiline)]
     private static partial Regex SceneEndPattern();
 
-    [GeneratedRegex(@"move\[(?:n|\d+)\]\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*(\w+)\s*,\s*(\d+)\s*(?:,\s*(\w+)\s*)?\}")]
+    /// <summary>
+    /// The two frames accept the same arithmetic the scene bounds do, in either
+    /// operand order, and are resolved through the script's symbol table rather
+    /// than parsed as ints — `{5679-gap, 5679, BUTTON1, 2}` is an ordinary way
+    /// to write a move whose DEADLINE is the frame you can see on screen.
+    ///
+    /// Death# takes a sign: the framework reads -1 as "optional move" and -2 as
+    /// "optional move with score" (main.singe), neither of which is a death.
+    /// </summary>
+    [GeneratedRegex(@"move\[(?:n|\d+)\]\s*=\s*\{\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*,\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*,\s*(\w+)\s*,\s*(-?\d+)\s*(?:,\s*(\w+)\s*)?\}")]
     private static partial Regex MovePattern();
 
     [GeneratedRegex(@"\{\s*""([^""]*)""\s*,\s*""([^""]*)""\s*\}")]
@@ -150,8 +169,13 @@ public static partial class SingeImporter
         foreach (Match m in DeathPattern().Matches(scriptText))
         {
             int index = int.Parse(m.Groups[1].Value);
-            int start = int.Parse(m.Groups[2].Value);
-            int end = int.Parse(m.Groups[3].Value);
+            if (LuaValues.Resolve(m.Groups[2].Value, symbols) is not { } start ||
+                LuaValues.Resolve(m.Groups[3].Value, symbols) is not { } end)
+            {
+                warnings.Add($"Death[{index}] frames '{m.Groups[2].Value.Trim()}, {m.Groups[3].Value.Trim()}' " +
+                             "could not be resolved to numbers - that death was not imported");
+                continue;
+            }
             string comment = m.Groups[4].Success ? m.Groups[4].Value.Trim() : "";
             string name = comment.Length > 0 ? $"Death {index}: {comment}" : $"Death {index}";
             Clip deathScene = GetOrCreateScene(project, start, end, name);
@@ -233,8 +257,17 @@ public static partial class SingeImporter
             Match move = MovePattern().Match(line);
             if (move.Success && scene != null)
             {
-                int start = int.Parse(move.Groups[1].Value);
-                int end = int.Parse(move.Groups[2].Value);
+                // Both frames may be arithmetic against a name defined earlier
+                // in the script; a name the script never defines is the author's
+                // bug and is reported rather than guessed at.
+                if (LuaValues.Resolve(move.Groups[1].Value, symbols) is not { } start ||
+                    LuaValues.Resolve(move.Groups[2].Value, symbols) is not { } end)
+                {
+                    warnings.Add($"L{currentLevel} S{currentScene}: move frames " +
+                                 $"'{move.Groups[1].Value.Trim()}, {move.Groups[2].Value.Trim()}' could not be " +
+                                 "resolved to numbers - skipped");
+                    continue;
+                }
                 string token = move.Groups[3].Value;
                 int deathIndex = int.Parse(move.Groups[4].Value);
                 string? altToken = move.Groups[5].Success ? move.Groups[5].Value : null;
@@ -264,7 +297,11 @@ public static partial class SingeImporter
                     DeathClipId = deathIndex > 0 && deathScenes.TryGetValue(deathIndex, out Guid deathId) ? deathId : null,
                     // Death# 0 on a normal move is a deliberate authoring choice
                     // (the scene itself shows the failure); preserve it.
-                    ExplicitNoDeath = deathIndex == 0 && input != InputKind.Skip,
+                    RandomDeath = deathIndex == 0 && input != InputKind.Skip,
+                    // -1 / -2 are the framework's "optional move" codes, not
+                    // deaths. Nothing here can express them, so they ride along
+                    // verbatim instead of turning into a death or a dropped move.
+                    RawDeathIndex = deathIndex < 0 ? deathIndex : null,
                 };
                 // Scripts write standard windows as {start, start+base}; only
                 // keep an explicit end when the window is non-standard.

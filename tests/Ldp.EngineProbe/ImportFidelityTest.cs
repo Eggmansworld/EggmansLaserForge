@@ -24,6 +24,103 @@ public static class ImportFidelityTest
         OffsetChecks(Check);
         IntroChecks(Check);
         ImportChecks(Check);
+        DeadlineStyleChecks(Check);
+    }
+
+    /// <summary>
+    /// The "badlands" style, from a real community script: the author thinks of
+    /// a move as a DEADLINE, so the window is written backwards from the frame
+    /// you can see on screen —
+    ///
+    ///     gap = 10
+    ///     move[1] = {5679-gap, 5679, BUTTON1, 2}
+    ///
+    /// The arithmetic is the mirror of the menu-offset form (number first, name
+    /// second), which used to match nothing, so EVERY move in the game was
+    /// reported "malformed" and dropped. The Death[] table had the same problem
+    /// from the other direction: its frames are counted off a landmark too, and
+    /// an unmatched Death[] line looks exactly like a script with no deaths, so
+    /// each surviving move then reported its death as missing.
+    ///
+    /// Death# also takes a sign. The framework reads -1 as "optional move" and
+    /// -2 as "optional move with score" — neither is a death, and neither
+    /// survives being parsed as an unsigned int.
+    /// </summary>
+    private static void DeadlineStyleChecks(Action<string, bool> Check)
+    {
+        const string script = """
+            gap = 10
+            offsetDeath = 20000
+
+            Death[01] = {offsetDeath+32, offsetDeath+181}
+            Death[02] = {offsetDeath+209, offsetDeath+276}
+
+            Level[1] = {"City", 5000, 5001, 1, 0, 0, 0}
+
+            function setupMoves(thisLevel, thisScene)
+            if thisLevel == 1 then
+                if thisScene == 1 then
+                    sceneStart = 5623
+                    sceneEnd   = 6086
+                    totalMoves = 5
+                    move[1] = {5679-gap, 5679, BUTTON1, 2}
+                    move[2] = {5826-gap, 5826, BUTTON1, 1}
+                    move[3] = {5900+gap, 5950, BUTTON2, 0}
+                    move[4] = {6000, 6040, HOLDBUT, -1}
+                    move[5] = {6041, 6061, LETGO, -1}
+                end
+            end
+            end
+            """;
+
+        var project = new LdpProject { Name = "Badlands" };
+        SingeImporter.Result result = SingeImporter.Import(project, script);
+
+        Check("deadline: every move survives the import", result.Moves == 5);
+        Check("deadline: nothing reported as malformed",
+              !result.Warnings.Any(w => w.Contains("malformed", StringComparison.OrdinalIgnoreCase)));
+
+        List<InteractionMarker> moves = project.Clips
+            .SelectMany(c => c.Interactions).OrderBy(m => m.Frame).ToList();
+
+        // 5679-gap = 5669, and the window ENDS on the frame the author named.
+        Check("deadline: number-minus-name resolves",
+              moves is [{ Frame: 5669 }, { Frame: 5816 }, { Frame: 5910 }, { Frame: 6000 }, { Frame: 6041 }]);
+        Check("deadline: the deadline is kept as the window end",
+              moves[0].EndFrameOverride == 5679 && moves[1].EndFrameOverride == 5826);
+        Check("deadline: number-plus-name resolves too", moves[2].Frame == 5910);
+
+        // The Death[] table is counted off a landmark as well.
+        Check("deadline: derived Death[] frames import", result.Deaths == 2);
+        Check("deadline: Death[01] resolved through the symbol table",
+              project.DeathPool.Count == 2 &&
+              project.ClipById(project.DeathPool[0]) is { StartFrame: 20032, EndFrame: 20181 });
+        Check("deadline: no move reports a missing death",
+              !result.Warnings.Any(w => w.Contains("missing Death", StringComparison.Ordinal)));
+        Check("deadline: a move's death resolves to the right scene",
+              project.ClipById(moves[0].DeathClipId ?? Guid.Empty) is { StartFrame: 20209 });
+
+        // -1 is not a death and must not become one, nor be dropped.
+        Check("deadline: an optional move is kept, not dropped", moves[3].RawDeathIndex == -1);
+        Check("deadline: an optional move gets no death and no warning",
+              moves[3].DeathClipId == null && !moves[3].RandomDeath);
+
+        // Death# 0 still means what it meant.
+        Check("deadline: Death# 0 still round-trips as written", moves[2].RandomDeath);
+
+        // Round trip: the codes go back out exactly as written.
+        string exported = SingeExporter.Export(project).Script;
+        Check("deadline: the optional code is written back",
+              exported.Contains("HOLDBUT, -1}", StringComparison.Ordinal));
+        Check("deadline: the resolved frames are written back as numbers",
+              exported.Contains("{5669, 5679, BUTTON1,", StringComparison.Ordinal));
+        // Specifically the DEATH warning: an optional move is not a move whose
+        // death is missing. (Other warnings about the same frame - hold pairing,
+        // for one - are a different question and stay.)
+        Check("deadline: an optional move is not reported as missing a death",
+              !SingeExporter.Export(project).Warnings.Any(
+                  w => w.Contains("6000", StringComparison.Ordinal) &&
+                       w.Contains("no death scene", StringComparison.Ordinal)));
     }
 
     private static void OffsetChecks(Action<string, bool> Check)
