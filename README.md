@@ -260,10 +260,24 @@ Let go to wherever the player should let go. If a hold ever ends up without one,
 exporting tells you which scene and frame.
 
 Some community scripts use move types this app can't author yet — mash rates
-like `MASHMAX`, and multi-step branch constructs like `CHOOSE`. **Importing a
-game keeps them exactly as written** and exports them unchanged, so nothing is
-lost; they simply appear in the move list under their script name and can't be
-edited here.
+like `MASHMAX`, and branch constructs like `PATH`, `TIMED` and `CHOOSE`.
+**Importing a game keeps them exactly as written** and exports them unchanged,
+so nothing is lost; they simply appear in the move list under their script name
+and can't be edited here.
+
+A branch move is really *two* lines in the script — the move itself, and a
+second row saying what each answer does:
+
+```lua
+move[1] = {7356, 7500, PATH, -1}          -- a decision happens here
+path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}    -- and this is the decision
+```
+
+Both are kept, and the second row travels **with its move** — so if you add or
+delete moves around it, it's renumbered to match instead of quietly coming to
+describe a different one. Exporting warns you if a branch move ever loses its
+row, because the game engine clears that table for every scene and would fail
+on the move rather than skip it.
 
 During playback, the currently-active move flashes **big and yellow** over the
 video, and the move list scrolls to follow along — so you can *watch* your
