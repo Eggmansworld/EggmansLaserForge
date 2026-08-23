@@ -434,6 +434,28 @@ public sealed class SingeGen
                     string alt = SingeExporter.AltInputToken(move) is { } a ? $", {a}" : "";
                     sb.AppendLine($"\t\t\tmove[{n + 1}] = {{{move.Frame}, {end}, {SingeExporter.InputToken(move)}, {death}{alt}}}");
                 }
+
+                // A branch move is two lines. The table row is indexed by the
+                // move's number, so it is written from the move's position here
+                // rather than the one it had in the script it came from.
+                for (int n = 0; n < moves.Count; n++)
+                {
+                    if (moves[n].BranchRows is not { Count: > 0 } rows) continue;
+                    foreach ((string table, string values) in rows.OrderBy(r => r.Key, StringComparer.Ordinal))
+                        sb.AppendLine($"			{table}[{n + 1}] = {{{values}}}");
+                }
+
+                // Shipping a branch move whose table went missing does not lose
+                // a branch, it crashes the game on the frame the move plays.
+                for (int n = 0; n < moves.Count; n++)
+                {
+                    string tok = SingeExporter.InputToken(moves[n]);
+                    if (tok is not ("PATH" or "TIMED")) continue;
+                    if (moves[n].BranchRows?.ContainsKey(tok.ToLowerInvariant()) == true) continue;
+                    _warnings.Add($"'{scene.Name}' move {n + 1} at {moves[n].Frame} is {tok} but has no " +
+                                  $"{tok.ToLowerInvariant()}[{n + 1}] row - the framework clears that table per " +
+                                  "scene, so the game will fail on this move rather than skip it");
+                }
                 sb.AppendLine();
             }
             // Anything but -1 feeds LvlOrder's requeue arithmetic and reorders

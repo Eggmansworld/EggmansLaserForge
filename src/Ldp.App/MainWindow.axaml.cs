@@ -847,6 +847,27 @@ public partial class MainWindow : Window
         string? path = files.Count == 1 ? files[0].TryGetLocalPath() : null;
         if (path == null) return;
 
+        // Importing rebuilds the game from the script, so anything already in
+        // the project that the script does not describe goes. Worth stopping for
+        // when there IS something - re-importing to pick up a fix is a normal
+        // thing to do, and losing an afternoon's scene work to it would not be.
+        int existingMoves = _project.Clips.Sum(c => c.Interactions.Count);
+        if (_project.Levels.Count > 0 || _project.Clips.Count > 0)
+        {
+            var replace = new ConfirmDialog(
+                "Replace this project's game with the script?",
+                $"Importing rebuilds the levels, scenes, moves, deaths and slots from " +
+                $"{Path.GetFileName(path)}. This project's {_project.Levels.Count} level(s), " +
+                $"{_project.Clips.Count} scene(s) and {existingMoves} move(s) are replaced, not merged.\n\n" +
+                "Your videos are kept. Ctrl+Z undoes the whole import.",
+                "Replace and import");
+            if (await replace.ShowDialog<bool>(this) != true)
+            {
+                StatusText.Text = "Import cancelled — the project is unchanged.";
+                return;
+            }
+        }
+
         try
         {
             string script = await File.ReadAllTextAsync(path);

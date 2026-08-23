@@ -63,6 +63,15 @@ public static partial class SingeImporter
     [GeneratedRegex(@"move\[(?:n|\d+)\]\s*=\s*\{\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*,\s*(\d+[ \t]*[+-][ \t]*[A-Za-z_]\w*|[A-Za-z_]\w*[ \t]*[+-][ \t]*\d+|[A-Za-z_]\w*|\d+)\s*,\s*(\w+)\s*,\s*(-?\d+)\s*(?:,\s*(\w+)\s*)?\}")]
     private static partial Regex MovePattern();
 
+    /// <summary>
+    /// A branch move's second line: `path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}` or
+    /// `timed[3] = {...}`. The index is the move's own number — the framework
+    /// reads `path[currentMove]` — so the row is attached to that move and
+    /// re-emitted under whatever index it ends up with.
+    /// </summary>
+    [GeneratedRegex(@"^[ 	]*(path|timed)\[(\d+)\][ 	]*=[ 	]*\{(.*)\}", RegexOptions.Multiline)]
+    private static partial Regex BranchRowPattern();
+
     [GeneratedRegex(@"\{\s*""([^""]*)""\s*,\s*""([^""]*)""\s*\}")]
     private static partial Regex LangEntryPattern();
 
@@ -130,6 +139,23 @@ public static partial class SingeImporter
         // as a bare number: authors routinely define the menu block by counting
         // from a landmark ("frameVictory = offsetMenus +3"), which a digits-only
         // pattern skips silently, leaving the slot looking unset.
+        // An import REPLACES the game this project describes. It used to merge,
+        // which is not a sensible reading of "import this script": the scenes
+        // are rebuilt from scratch but the levels were appended, so a second
+        // import of the same file produced a 26-level game whose L14..L26 were
+        // duplicates of L1..L13 - and the levels an author was still editing
+        // went on pointing at the OLD scenes, so a fix in the importer never
+        // reached them. Deleting the duplicates did not help either, because the
+        // next import appended after the highest number ever used.
+        //
+        // The videos are the project's own and are left alone; everything below
+        // is what the script itself defines.
+        project.Levels.Clear();
+        project.Clips.Clear();
+        project.DeathPool.Clear();
+        project.Slots.Ranges.Clear();
+        project.Slots.Stills.Clear();
+
         LuaValues.Table symbols = LuaValues.Build(scriptText);
         IReadOnlyDictionary<string, int> offsets = symbols.Values;
 
@@ -211,6 +237,8 @@ public static partial class SingeImporter
         int currentScene = 0;
         Clip? scene = null;
         int sceneCount = 0, moveCount = 0;
+        // Branch tables, banked while walking and attached to their moves after.
+        List<(Clip Scene, string Table, int Index, string Values, int Level, int SceneNo)> branchRows = [];
         // Advanced tokens actually met, so the report names what this game uses
         // rather than reciting the whole vocabulary.
         var advancedUsed = new SortedSet<string>(StringComparer.Ordinal);
@@ -312,6 +340,14 @@ public static partial class SingeImporter
                 scene.Interactions.Add(marker);
                 moveCount++;
             }
+            else if (BranchRowPattern().Match(line) is { Success: true } branch && scene != null)
+            {
+                // The row may appear after the moves it belongs to (it usually
+                // does), so it is banked against the move index and attached
+                // once the whole scene has been read.
+                branchRows.Add((scene, branch.Groups[1].Value, int.Parse(branch.Groups[2].Value),
+                                branch.Groups[3].Value.Trim(), currentLevel, currentScene));
+            }
             else if (!move.Success && scene != null &&
                      line.Contains("move[", StringComparison.Ordinal) &&
                      line.Contains('{') && !line.TrimStart().StartsWith("--", StringComparison.Ordinal))
@@ -322,6 +358,25 @@ public static partial class SingeImporter
                 warnings.Add($"L{currentLevel} S{currentScene}: malformed move line skipped: {line.Trim()}");
             }
         }
+
+        // ---- Branch tables ----
+        // A PATH move without its path[] row is not a game missing a branch, it
+        // is a game that crashes: the framework clears the table per scene, so
+        // path[currentMove][1] indexes nil.
+        foreach ((Clip owner, string table, int index, string values, int lvl, int scn) in branchRows)
+        {
+            if (index < 1 || index > owner.Interactions.Count)
+            {
+                warnings.Add($"L{lvl} S{scn}: {table}[{index}] has no move {index} to belong to - " +
+                             "that branch table was not imported");
+                continue;
+            }
+            InteractionMarker owning = owner.Interactions[index - 1];
+            (owning.BranchRows ??= [])[table] = values;
+        }
+        if (branchRows.Count > 0)
+            warnings.Add($"{branchRows.Count} branch table row(s) (path/timed) are kept exactly as written and " +
+                         "travel with their move, but cannot be edited here yet.");
 
         // ---- Advanced move report ----
         // Named per token, in the log, rather than behind a modal: everything

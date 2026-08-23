@@ -25,6 +25,171 @@ public static class ImportFidelityTest
         IntroChecks(Check);
         ImportChecks(Check);
         DeadlineStyleChecks(Check);
+        BranchTableChecks(Check);
+        ReimportChecks(Check);
+    }
+
+    /// <summary>
+    /// Importing REPLACES the game a project describes; it used to merge.
+    ///
+    /// The scenes were rebuilt from scratch each time but the levels were
+    /// appended, so importing the same file twice produced a 26-level game
+    /// whose L14..L26 duplicated L1..L13 — and the levels the author was still
+    /// editing went on pointing at the OLD scenes. That is what made a fix in
+    /// the importer look like it had not worked: the corrected scenes were
+    /// there, just not the ones any level used. Deleting the duplicates did not
+    /// help, because the next import appended after the highest number ever
+    /// used.
+    ///
+    /// The videos belong to the project, not the script, and must survive.
+    /// </summary>
+    private static void ReimportChecks(Action<string, bool> Check)
+    {
+        const string script = """
+            Level[1] = {"One", 1000, 1001, 1, 0, 0, 0}
+            Level[2] = {"Two", 3000, 3001, 1, 0, 0, 0}
+            function setupMoves(thisLevel, thisScene)
+            if thisLevel == 1 then
+                if thisScene == 1 then
+                    sceneStart = 1100
+                    sceneEnd   = 1900
+                    totalMoves = 1
+                    move[1] = {1200, 1220, UP, 0}
+                end
+            elseif thisLevel == 2 then
+                if thisScene == 1 then
+                    sceneStart = 3100
+                    sceneEnd   = 3900
+                    totalMoves = 1
+                    move[1] = {3200, 3220, DOWN, 0}
+                end
+            end
+            end
+            """;
+
+        var project = new LdpProject { Name = "Reimport" };
+        project.Videos.Add(new VideoSource { Path = "Video/main.m2v", PictureCount = 50000, GlobalBase = 0 });
+
+        SingeImporter.Import(project, script);
+        int levels = project.Levels.Count, clips = project.Clips.Count;
+        Check("reimport: the first import builds the game", levels == 2 && clips == 2);
+
+        SingeImporter.Import(project, script);
+        SingeImporter.Import(project, script);
+        Check("reimport: importing again does not append levels", project.Levels.Count == levels);
+        Check("reimport: importing again does not append scenes", project.Clips.Count == clips);
+        Check("reimport: level titles are not duplicated",
+              project.Levels.Select(l => l.Title).SequenceEqual(["One", "Two"]));
+        Check("reimport: every scene still belongs to a level",
+              project.Levels.SelectMany(l => l.SceneIds).Distinct().Count() == project.Clips.Count);
+        Check("reimport: moves are not duplicated inside a scene",
+              project.Clips.All(c => c.Interactions.Count == 1));
+
+        // The videos are the project's own.
+        Check("reimport: the project's videos survive",
+              project.Videos is [{ Path: "Video/main.m2v", PictureCount: 50000 }]);
+
+        // Deleting a level must not leave the next import numbering past it.
+        project.Levels.RemoveAt(1);
+        SingeImporter.Import(project, script);
+        Check("reimport: after deleting a level, the next import is still 2 levels",
+              project.Levels.Count == 2 &&
+              project.Levels.Select(l => l.Title).SequenceEqual(["One", "Two"]));
+
+        // Scenes an author added by hand are part of the game the script owns,
+        // so they go too — the confirm in the UI is what makes that a choice.
+        project.Clips.Add(new Clip { Name = "hand-made", StartFrame = 9000, EndFrame = 9100 });
+        SingeImporter.Import(project, script);
+        Check("reimport: replaces rather than accumulating stray scenes",
+              project.Clips.Count == clips && project.Clips.All(c => c.Name != "hand-made"));
+    }
+
+    /// <summary>
+    /// A branch move is TWO lines, and the importer only ever read the first.
+    ///
+    ///     move[1] = {7356, 7500, PATH, -1}          -- a decision happens here
+    ///     path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}    -- and this is the decision
+    ///
+    /// (That row reads: press Button 1 and you get target 1039; the framework
+    /// treats a target over 1000 as a death, so 1039 is Death[39]. Field 9 is
+    /// the move to resume at afterwards.)
+    ///
+    /// Dropping the second line does not export a game missing a branch — it
+    /// exports one that CRASHES. main.singe clears the table per scene
+    /// (`path = nil; path = {}`), so a PATH move with no row makes
+    /// `path[currentMove][1]` index a nil value.
+    ///
+    /// The framework indexes the row by the MOVE's number, so it has to travel
+    /// with the move rather than with the position it happened to hold in the
+    /// script it came from.
+    /// </summary>
+    private static void BranchTableChecks(Action<string, bool> Check)
+    {
+        const string script = """
+            gap = 10
+            offsetDeath = 20000
+            Death[39] = {offsetDeath+100, offsetDeath+200}
+            Level[1] = {"Forest House", 6906, 6907, 1, 0, 0, 0}
+            function setupMoves(thisLevel, thisScene)
+            if thisLevel == 1 then
+                if thisScene == 1 then
+                    sceneStart = 7256
+                    sceneEnd   = 7821
+                    totalMoves = 3
+                    move[1] = {7356, 7500, PATH, -1}
+                    move[2] = {7502, 7542, BUTTON1, 39}
+                    move[3] = {7752-gap, 7752, BUTTON1, 39}
+                    path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}
+                end
+            end
+            end
+            """;
+
+        var project = new LdpProject { Name = "Branching" };
+        SingeImporter.Result result = SingeImporter.Import(project, script);
+        Clip scene = project.Clips.First(c => c.Interactions.Count == 3);
+        List<InteractionMarker> moves = scene.Interactions.OrderBy(m => m.Frame).ToList();
+
+        Check("branch: the path row is kept", moves[0].BranchRows?["path"] == "BUTTON1,1039,0,0,0,0,0,0,2");
+        Check("branch: it lands on the move it belongs to",
+              moves[1].BranchRows == null && moves[2].BranchRows == null);
+        Check("branch: the import says the table cannot be edited here",
+              result.Warnings.Any(w => w.Contains("branch table", StringComparison.OrdinalIgnoreCase)));
+
+        string exported = SingeExporter.Export(project).Script;
+        Check("branch: the row is written back verbatim",
+              exported.Contains("path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}", StringComparison.Ordinal));
+        Check("branch: a complete branch move draws no export warning",
+              !SingeExporter.Export(project).Warnings.Any(w => w.Contains("has no path[", StringComparison.Ordinal)));
+
+        // The row follows its move. Moves are numbered in FRAME order, so adding
+        // one ahead of the PATH move makes it move[2] — and its row has to become
+        // path[2] or it now describes somebody else's move.
+        var reordered = project.Clips.First(c => c.Interactions.Count == 3).Duplicate();
+        var project2 = new LdpProject { Name = "Reordered" };
+        project2.Clips.Add(reordered);
+        project2.AddLevel().SceneIds.Add(reordered.Id);
+        InteractionMarker path = reordered.Interactions.OrderBy(m => m.Frame).First();
+        Check("branch: Duplicate() carries the row", path.BranchRows?.ContainsKey("path") == true);
+
+        reordered.Interactions.Add(new InteractionMarker { Frame = 7300, Input = InputKind.Button1 });
+        string moved = SingeExporter.Export(project2).Script;
+        Check("branch: the row is renumbered when the move's position changes",
+              moved.Contains("path[2] = {BUTTON1,1039,0,0,0,0,0,0,2}", StringComparison.Ordinal) &&
+              !moved.Contains("path[1] =", StringComparison.Ordinal));
+
+        // Losing the row is the crash, so the exporter has to say so.
+        path.BranchRows = null;
+        Check("branch: a PATH move with no row is reported",
+              SingeExporter.Export(project2).Warnings.Any(
+                  w => w.Contains("has no path[", StringComparison.Ordinal)));
+
+        // A row pointing at a move that does not exist is the author's bug.
+        var orphan = new LdpProject { Name = "Orphan" };
+        SingeImporter.Result orphanResult = SingeImporter.Import(orphan, script.Replace(
+            "path[1] = {BUTTON1", "path[9] = {BUTTON1", StringComparison.Ordinal));
+        Check("branch: a row with no move to belong to is reported",
+              orphanResult.Warnings.Any(w => w.Contains("no move 9", StringComparison.Ordinal)));
     }
 
     /// <summary>

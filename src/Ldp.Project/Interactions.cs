@@ -112,6 +112,25 @@ public sealed class InteractionMarker
     public int? RawDeathIndex { get; set; }
 
     /// <summary>
+    /// Side-table rows this move owns, keyed by the table's name ("path",
+    /// "timed"), holding the text between the braces exactly as the script
+    /// wrote it.
+    ///
+    /// A branch move is two lines, not one. `move[1] = {..., PATH, -1}` says a
+    /// decision happens; `path[1] = {BUTTON1,1039,0,0,0,0,0,0,2}` says what the
+    /// decision IS. The framework indexes both by the same move number
+    /// (main.singe reads `path[currentMove]`, and TIMED defaults to
+    /// `timed[currentMove]`), so the row is carried on the move and re-emitted
+    /// under whatever index the move ends up with.
+    ///
+    /// Keeping only the first line does not produce a game missing a branch —
+    /// it produces one that CRASHES. The framework clears the table per scene
+    /// (`path = nil; path = {}`), so a PATH move with no row makes
+    /// `path[currentMove][1]` index a nil value.
+    /// </summary>
+    public Dictionary<string, string>? BranchRows { get; set; }
+
+    /// <summary>
     /// The script's own token when <see cref="Input"/> is
     /// <see cref="InputKind.Advanced"/>, e.g. "MASHMAX" or "CHOOSE". Written
     /// back verbatim on export.

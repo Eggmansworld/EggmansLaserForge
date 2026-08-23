@@ -563,6 +563,7 @@ public sealed class Clip
             DeathClipId = m.DeathClipId,
             RandomDeath = m.RandomDeath,
             RawDeathIndex = m.RawDeathIndex,
+            BranchRows = m.BranchRows is null ? null : new Dictionary<string, string>(m.BranchRows),
             AltInput = m.AltInput,
             RawInput = m.RawInput,
             RawAltInput = m.RawAltInput,

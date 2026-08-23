@@ -435,6 +435,13 @@ out, and a dialog gives you everything to run it:
   visual project**, auto-building the storyboard so you can edit it here instead
   of in a text editor.
 
+> **Importing replaces, it doesn't merge.** The levels, scenes, moves, deaths
+> and slots are rebuilt from the script every time, so you can re-import the
+> same file freely — to pick up a correction, or after editing the script
+> outside the app — without the game doubling up. Your **videos are kept**;
+> they belong to the project, not the script. The app asks first when there's
+> something to replace, and **Ctrl+Z** undoes the whole import.
+
 Your video, audio, and generated frame-index files are **not** part of the
 project file — keep the originals safe yourself.
 
