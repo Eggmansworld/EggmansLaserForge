@@ -1,3 +1,19 @@
+![AI-Assisted](https://img.shields.io/badge/AI--assisted-human--reviewed-blue)
+## A Note on AI-Assisted Development
+
+This project was built with AI as a code design and development tool. That
+means an AI model helped draft, structure, and troubleshoot portions of the
+code — but every line went through a human (me) for review, testing, and final
+approval. The AI proposes; I dispose. Nothing here shipped without my sign-off,
+and I take responsibility for what's in the repository.
+
+This disclaimer isn't here to sell you on AI-assisted coding or argue the point.
+It's here so you know exactly how this project was made. If the use of AI in the
+development process is a dealbreaker for you, that's a completely valid stance —
+this just isn't the project for you. No hard feelings; feel free to move along.
+
+---
+
 ![Eggman's LaserForge](assets/Image_banner_full.png)
 
 # Eggman's LaserForge
