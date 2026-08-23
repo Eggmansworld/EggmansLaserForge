@@ -2017,11 +2017,11 @@ function updatePercent(thisName, thisPercent)
 
 		percent[iLevel][3] = "N"
 
-	elseif dip_Difficulty == 3 then
+	elseif dip_Difficulty == 2 then
 
 		percent[iLevel][3] = "H"
 
-	elseif dip_Difficulty == 4 then
+	elseif dip_Difficulty == 3 then
 
 		percent[iLevel][3] = "X"
 

@@ -359,7 +359,8 @@ function readConfig()
 
 	if (s1 ~= nil and s1 ~= "") then
 	
-		mycolor3 = tonumber(string.sub(s1,string.find(s1,"=")+1))
+		dip_Bilinear = tonumber(string.sub(s1,string.find(s1,"=")+1))
+		setBilinear()
 		
 	end
 
@@ -432,7 +433,6 @@ function readConfig()
 
 	svCol1 = mycolor1
 	svCol2 = mycolor2
-	svCol3 = mycolor3
 	svFS = fontSize
 
 	setSkin()
@@ -530,7 +530,7 @@ function writeConfig()
 	io.write("dip_Display = " .. dip_Display .. sNewLine)
 	io.write("dip_LivType = " .. dip_LivType .. sNewLine)
 	io.write("dip_ScType = " .. dip_ScType .. sNewLine)
-	io.write("mycolor3 = " .. mycolor3 .. sNewLine)
+	io.write("dip_Bilinear = " .. dip_Bilinear .. sNewLine)
 	io.write("dip_FontQ = " .. dip_FontQ .. sNewLine)
 	io.write("dip_HoldtoLoop = " .. dip_HoldtoLoop .. sNewLine)
 	io.write("dip_MashRes = " .. dip_MashRes .. sNewLine)
@@ -898,8 +898,9 @@ function setDefault()
 
 	if (s1 ~= nil) then
 	
-		mycolor3 = tonumber(string.sub(s1,string.find(s1,"=")+1))
-		
+		dip_Bilinear = 1
+		setBilinear()
+
 	end
 
 	s1 = io.read("*line")	
@@ -970,7 +971,6 @@ function setDefault()
 
 	svCol1 = mycolor1
 	svCol2 = mycolor2
-	svCol3 = mycolor3
 	svFS = fontSize
 
 	setSkin()
@@ -3148,13 +3148,16 @@ function updateOptsG(thisIndex)
 		setFontColor(mycolor2)
 
 	elseif (thisIndex == 13) then
-	
-		mycolor3 = mycolor3 + 1
 
-		if mycolor3 > 14 then mycolor3 = 1 end
+		if singeVersion() > 3.0001 then
 
-		setFontColor(mycolor3)
-				
+			dip_Bilinear = dip_Bilinear + 1
+
+			if dip_Bilinear > 1 then dip_Bilinear = 0 end
+
+			setBilinear()
+		end
+
 	elseif (thisIndex == 14) then		
 
 		if bInPlayExit then
@@ -3506,12 +3509,16 @@ function updateOptsMinG(thisIndex)
 		setFontColor(mycolor2)
 
 	elseif (thisIndex == 13) then
-	
-		mycolor3 = mycolor3 - 1
 
-		if mycolor3 < 1 then mycolor3 = 14 end
+		if singeVersion() > 3.0001 then
 
-		setFontColor(mycolor3)
+			dip_Bilinear = dip_Bilinear - 1
+
+			if dip_Bilinear < 0 then dip_Bilinear = 1 end
+
+			setBilinear()
+
+		end
 
 	elseif (thisIndex == 14) then		
 
@@ -3559,7 +3566,7 @@ function printOptsG()
 	smenu[10] = "Adjust Font Size"
 	smenu[11] = "UI Color"
 	smenu[12] = "UI Highlight"
-	smenu[13] = "Score Color"
+	smenu[13] = "Bilinear Scale"
 	
 	if bInPlayExit then
 
@@ -3929,63 +3936,22 @@ function printOptsG()
 
 		elseif (k == 13) then
 
-			if mycolor3 == 1 then
-				
-				fontPrint(fntx, ypos, "WHITE")	
-							
-			elseif mycolor3 == 2 then
-			
-				fontPrint(fntx, ypos, "RED")
+			if singeVersion() > 3.0001 then
 
-			elseif mycolor3 == 3 then
-			
-				fontPrint(fntx, ypos, "BLUE")
+				if dip_Bilinear == 0 then
 
-			elseif mycolor3 == 4 then
-			
-				fontPrint(fntx, ypos, "YELLOW")
+					fontPrint(fntx, ypos, "Off")
 
-			elseif mycolor3 == 5 then
-			
-				fontPrint(fntx, ypos, "GREEN")
+				else
 
-			elseif mycolor3 == 6 then
-			
-				fontPrint(fntx, ypos, "ORANGE")
+					fontPrint(fntx, ypos, "On")
 
-			elseif mycolor3 == 7 then
-			
-				fontPrint(fntx, ypos, "PINK")
+				end
 
-			elseif mycolor3 == 8 then
-			
-				fontPrint(fntx, ypos, "PURPLE")
+			else
+				fontPrint(fntx, ypos, "N/A")
 
-			elseif mycolor3 == 9 then
-			
-				fontPrint(fntx, ypos, "LIGHTBLUE")
-
-			elseif mycolor3 == 10 then
-			
-				fontPrint(fntx, ypos, "LIGHTGREEN")
-
-			elseif mycolor3 == 11 then
-			
-				fontPrint(fntx, ypos, "LIGHTPINK")
-
-			elseif mycolor3 == 12 then
-			
-				fontPrint(fntx, ypos, "GREY")
-
-			elseif mycolor3 == 13 then
-			
-				fontPrint(fntx, ypos, "BLACK")
-
-			elseif mycolor3 == 14 then
-			
-				fontPrint(fntx, ypos, "MISC")
-						
-			end 
+			end
 						
 		end
 
@@ -5130,7 +5096,7 @@ function printSave()
 
 	end
 
-	setFontColor(mycolor3)
+	setFontColor(mycolor1)
 	fontSelect(fontLCD)
 	
 	for k=1,4 do
@@ -6046,7 +6012,6 @@ function setSkin()
 
 		mycolor1 = svCol1
 		mycolor2 = svCol2
-		mycolor3 = svCol3
 		if dip_Res ~= 2 then fontSize = svFS end
 		fontType = 1
 		numFont = 1
@@ -6056,7 +6021,6 @@ function setSkin()
 		SKINDIR = "/DEFAULT"
 		mycolor1 = 1
 		mycolor2 = 2
-		mycolor3 = 4
 		if dip_Res ~= 2 then fontSize = 0 end
 		numFont = 2
 
@@ -6069,7 +6033,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 6
-		mycolor3 = 4
 		if dip_Res ~= 2 then fontSize = 0 end
 		fontType = 1
 		numFont = 1
@@ -6083,7 +6046,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 4
-		mycolor3 = 2
 		if dip_Res ~= 2 then fontSize = -3 end
 		fontType = 1
 		numFont = 1
@@ -6097,7 +6059,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 5
-		mycolor3 = 5
 		if dip_Res ~= 2 then fontSize = -2 end
 		fontType = 1
 		numFont = 1
@@ -6111,7 +6072,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 7
-		mycolor3 = 8
 		if dip_Res ~= 2 then fontSize = 0 end
 		fontType = 1
 		numFont = 1
@@ -6125,7 +6085,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 9
-		mycolor3 = 9
 		if dip_Res ~= 2 then fontSize = 0 end
 		fontType = 1
 		numFont = 1
@@ -6139,7 +6098,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 5
-		mycolor3 = 4
 		if dip_Res ~= 2 then fontSize = 0 end
 		fontType = 1
 		numFont = 1
@@ -6153,7 +6111,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 9
-		mycolor3 = 3
 		if dip_Res ~= 2 then fontSize = 0 end
 		numFont = 2
 
@@ -6166,7 +6123,6 @@ function setSkin()
 		end
 		mycolor1 = 1
 		mycolor2 = 2
-		mycolor3 = 4
 		if dip_Res ~= 2 then fontSize = 0 end
 		numFont = 2
 

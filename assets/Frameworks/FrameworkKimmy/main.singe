@@ -1026,7 +1026,7 @@ function doFinish()      -- Process the end of a PERCENT level
 			else
 
 				fontSelect(fontBig)
-				setFontColor(mycolor3)
+				setFontColor(mycolor1)
 				fontPrint(mb52,1.16*OVLH/2,numTrophy .. "/100")
 
 				if numTrophy  < 12 then
@@ -4122,7 +4122,7 @@ function getRes()		-- Manage Resolution and Sprites
 	getFont()
 	theMiddle()
 
-	setFontColor(mycolor3)
+	setFontColor(mycolor1)
 	fontSelect(fontGame)
 	fillOVLnum(1,"num00.png")
 	fillOVLnum(2,"num01.png")

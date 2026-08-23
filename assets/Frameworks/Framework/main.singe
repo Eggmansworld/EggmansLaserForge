@@ -5081,13 +5081,6 @@ function getRes()
 
 	for file in lfs.dir(MYDIR..MIDIRES) do
 
-		if file == "scanlines.png" then	
-
-			sprite[SCAN] = spriteLoad(MYDIR..MIDIRES.."scanlines.png") 
-			bScan = true 
-
-		end
-
 		if file == "getready.png" then 
 
 			sprite[GETREADY]  	= spriteLoad(MYDIR..MIDIRES.."getready.png") 
@@ -6093,8 +6086,6 @@ function onOverlayUpdate()     -- Manage the game and look for any given situati
 				
 	elseif (gameflow == flow_GameRunning) then	
 
-		if dip_Scanlines == 2 and bScan then spriteDraw(0,0,sprite[SCAN]) end
-		
 		if (currentLevel == levelIntro) then
 		
 			doIntro()		
@@ -6184,8 +6175,6 @@ function onOverlayUpdate()     -- Manage the game and look for any given situati
 		if bShowGet and bGR then drawGet() 	    end	
 		if bShowLvl and ShowLevel then drawLvl() end
 
-		if dip_Scanlines == 1 and bScan then spriteDraw(0,0,sprite[SCAN]) end
-		
 	end
 
 	return(OVERLAY_UPDATED)

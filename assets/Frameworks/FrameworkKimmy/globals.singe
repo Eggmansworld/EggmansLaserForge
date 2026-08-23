@@ -85,7 +85,6 @@ dip_Model = 0
 dip_Display = 0
 dip_LiveType = 0
 dip_ScType = 1
-mycolor3 = 1
 dip_FontQ = 3
 dip_HoldtoLoop = 0
 dip_MashRes = 5
@@ -157,6 +156,7 @@ AllowKid = true
 AllowDie = true
 MazeGame = false
 
+dip_Bilinear = 1
 dip_Loadsave = 0
 dip_Slot = 1
 

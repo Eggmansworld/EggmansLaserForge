@@ -165,6 +165,19 @@ function muteSound()
 
 end
 
+function setBilinear()
+
+	if singeVersion() > 3.0001 then
+
+		if dip_Bilinear == 1 then
+
+			setOverlayLinearScale(true)
+		else
+			setOverlayLinearScale(false)
+		end
+	end
+end
+
 function setLang()
 
 	if LangOpt == nil then return end

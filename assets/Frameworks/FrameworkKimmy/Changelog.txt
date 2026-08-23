@@ -1,4 +1,18 @@
-commit f568f4281f6191248856eeb067c41a5757bc9ae2 (HEAD -> master, origin/master, origin/HEAD)
+commit b300895d4f17ee2ae14ec9b11087666332c2d8e5 (HEAD -> master, origin/master, origin/HEAD)
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Sun Aug 16 11:27:49 2026 +0100
+
+    Pre-emptive changes for BILINEAR scale Service Menu option.
+    
+     - These will present a N/A option on current Hypseus releases.
+
+commit 4e1e7ccb22aacb91e3e897e873dd74f60f82e25e
+Author: DirtBagXon <noop@member.fsf.org>
+Date:   Mon Aug 3 11:38:09 2026 +0100
+
+    Fix an old Framework labelling bug in % mode [Tagai]
+
+commit f568f4281f6191248856eeb067c41a5757bc9ae2
 Author: DirtBagXon <noop@member.fsf.org>
 Date:   Wed Jul 29 10:18:30 2026 +0100
 

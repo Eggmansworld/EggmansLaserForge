@@ -14,3 +14,11 @@
 *.cs     text eol=lf
 *.axaml  text eol=lf
 *.md     text eol=lf
+
+# The last stragglers. Only two .txt files are tracked (the framework
+# changelogs) - a game's frame file is generated, never committed.
+*.txt          text eol=lf
+*.csproj       text eol=lf
+*.slnx         text eol=lf
+*.manifest     text eol=lf
+.gitattributes text eol=lf
