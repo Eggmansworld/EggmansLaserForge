@@ -35,6 +35,36 @@ public static class ProjectTest
         Check("ToGlobal inverts Resolve", project.ToGlobal(1, 3620) == 100581);
         Check("NextGlobalBase is contiguous", project.NextGlobalBase() == 100582 + 1110);
 
+        // ---- Elapsed-time read-out ----
+        // Frames stay the unit; this is the convenience clock beside the counter.
+        // A rate is needed and this model has none, so it must say so rather than
+        // divide by zero and print 00:00:00 at every frame.
+        Check("time: no frame rate means no clock", project.TimeAtGlobal(1000) == null);
+        Check("time: no rate shows dashes", project.TimecodeAtGlobal(1000) == "--:--:--");
+
+        foreach (VideoSource v in project.Videos) v.Fps = 29.97002997;
+        Check("time: frame 0 is zero", project.TimecodeAtGlobal(0) == "00:00:00");
+        // 96959 / 29.97002997 = 3235.29s = 53m 55s.
+        Check("time: an hour-scale frame", project.TimecodeAtGlobal(96959) == "00:53:55");
+        // Videos ahead of the frame contribute their whole duration, so the clock
+        // runs on across the project instead of resetting per file.
+        Check("time: the second video continues the clock",
+              project.TimecodeAtGlobal(96961) == "00:53:55");
+        Check("time: the third video keeps going",
+              project.TimeAtGlobal(100582) is { } t3 && Math.Abs(t3.TotalSeconds - (96960 + 3621) / 29.97002997) < 0.01);
+        Check("time: a gap frame has no time", project.TimeAtGlobal(96960) == null);
+        Check("time: past the end has no time", project.TimeAtGlobal(999999) == null);
+        // Hours are always printed so the field never changes width under the
+        // moving frame number.
+        Check("time: hours are always shown", project.TimecodeAtGlobal(100)?.StartsWith("00:") == true);
+
+        // Over an hour, and over 24 hours: TimeSpan.Hours wraps at a day, which
+        // would print a 25-hour disc as 01:xx:xx.
+        var longProject = new LdpProject { Name = "Long" };
+        longProject.Videos.Add(new VideoSource { PictureCount = 3_000_000, GlobalBase = 0, Fps = 25 });
+        Check("time: past one hour", longProject.TimecodeAtGlobal(90000) == "01:00:00");
+        Check("time: past one day does not wrap", longProject.TimecodeAtGlobal(2_250_000) == "25:00:00");
+
         // A scene whose frames live in a later video must resolve to THAT video,
         // never the first (the double-click-goes-to-video-0 bug). A scene with
         // no stored video index — the whole point — still resolves correctly.

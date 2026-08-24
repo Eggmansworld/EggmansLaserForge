@@ -241,6 +241,45 @@ public sealed class LdpProject
         return last.GlobalBase + last.PictureCount;
     }
 
+    /// <summary>
+    /// Elapsed time at a global frame, for the read-out beside the frame counter.
+    /// Frames stay the unit this app works in; this is only ever a convenience,
+    /// so it is deliberately an approximation and never round-trips back into a
+    /// frame number.
+    ///
+    /// Whole videos ahead of the frame contribute their own full duration at
+    /// their own rate, so the clock runs continuously across a multi-video
+    /// project the way the frame counter does — a per-video clock would reset
+    /// mid-timeline while the number above it kept climbing. With the single
+    /// video most games have, this is just frame ÷ fps.
+    ///
+    /// Null when the frame is in a gap or past the last picture, or when the
+    /// videos it would have to cross carry no frame rate.
+    /// </summary>
+    public TimeSpan? TimeAtGlobal(int globalFrame)
+    {
+        if (Resolve(globalFrame) is not { } at) return null;
+        double seconds = 0;
+        for (int i = 0; i < at.VideoIndex; i++)
+        {
+            if (Videos[i].Fps <= 0) return null;
+            seconds += Videos[i].PictureCount / Videos[i].Fps;
+        }
+        if (Videos[at.VideoIndex].Fps <= 0) return null;
+        seconds += at.LocalFrame / Videos[at.VideoIndex].Fps;
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    /// <summary>
+    /// The read-out itself: <c>hh:mm:ss</c>, or <c>--:--:--</c> when there is no
+    /// rate to work from. Hours are always shown so the field never changes
+    /// width and the digits stay put as the frame moves.
+    /// </summary>
+    public string TimecodeAtGlobal(int globalFrame) =>
+        TimeAtGlobal(globalFrame) is { } t
+            ? $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}"
+            : "--:--:--";
+
     // ----- Level structure -----
     //
     // Levels are what the framework actually plays: Level[n] declares a scene

@@ -27,6 +27,119 @@ public static class ImportFidelityTest
         DeadlineStyleChecks(Check);
         BranchTableChecks(Check);
         ReimportChecks(Check);
+        RelativeFrameChecks(Check);
+    }
+
+    /// <summary>
+    /// RelativeFrames = true. setupFrames adds Level[thisLevel][INTROCLIP] to
+    /// sceneStart, sceneEnd and both frames of every move (main.singe:6392), so
+    /// the numbers in setupMoves are offsets into the level rather than disc
+    /// frames.
+    ///
+    /// The importer used to read them as disc frames and say so in the log,
+    /// which imported Tron_1982 with every scene of Level 1 sitting 9,749
+    /// frames early — and since the export writes RelativeFrames = false, the
+    /// framework then added nothing back and the game was unplayable.
+    ///
+    /// Death[], Level[] and the menu slots are absolute under both settings.
+    /// setupFrames never touches them, so folding a base into them would break
+    /// the scripts that are already right.
+    /// </summary>
+    private static void RelativeFrameChecks(Action<string, bool> Check)
+    {
+        // Tron_1982's Level 1, verbatim: base 9749, first three moves relative.
+        const string script = """
+            RelativeFrames = true
+
+            Death[1] = {76177, 76196}
+
+            Level[1] = {"Arrival", 9749, 9984, 1, 0, 0, -1}
+            Level[2] = {"Ball Game", 13020, 15232, 1, 0, 0, -1}
+            Level[levelSecret] = {"Tank", 78327, 78447, 1, 0, 0, -1}
+
+            function setupMoves(thisLevel, thisScene)
+                if thisLevel == 1 then
+                    if thisScene == 1 then
+                        sceneStart = 236
+                        sceneEnd   = 2047
+                        totalMoves = 3
+                        move[1] = {271, 286, UP, 1}
+                        move[2] = {321, 514, SKIP, 0}
+                        move[3] = {709, 724, LEFT, 1}
+                    end
+                elseif thisLevel == 2 then
+                    if thisScene == 1 then
+                        sceneStart = 378
+                        sceneEnd   = 775
+                        totalMoves = 1
+                        move[1] = {400, 420, UP, 1}
+                    end
+                elseif thisLevel == levelSecret then
+                    if thisScene == 1 then
+                        sceneStart = 10
+                        sceneEnd   = 500
+                        totalMoves = 1
+                        move[1] = {100, 120, UP, 1}
+                    end
+                end
+            end
+            """;
+
+        var project = new LdpProject { Name = "Relative" };
+        SingeImporter.Result result = SingeImporter.Import(project, script);
+
+        Clip? one = project.Clips.FirstOrDefault(c => c.Name == "L1 S1");
+        Check("relative: sceneStart takes the level's start frame",
+              one is { StartFrame: 9985 });                       // 236 + 9749
+        Check("relative: sceneEnd takes it too",
+              one is { EndFrame: 11796 });                        // 2047 + 9749
+        Check("relative: move frames take it as well",
+              one != null && one.Interactions.Select(m => m.Frame).SequenceEqual([10020, 10070, 10458]));
+        Check("relative: an explicit move window keeps its length",
+              one != null && one.Interactions[1].EndFrameOverride == 10263);   // 514 + 9749
+
+        // Each level counts from its OWN start, which is the whole point: a
+        // single global offset would put every level but the first wrong.
+        Clip? two = project.Clips.FirstOrDefault(c => c.Name == "L2 S1");
+        Check("relative: the second level counts from its own start",
+              two is { StartFrame: 13398, EndFrame: 13795 });      // 378/775 + 13020
+        Check("relative: its moves do the same",
+              two is { Interactions.Count: 1 } && two.Interactions[0].Frame == 13420);
+
+        Check("relative: the Death table is left absolute",
+              project.DeathPool.Count == 1 &&
+              project.Clips.Any(c => c.StartFrame == 76177 && c.EndFrame == 76196));
+        Check("relative: the Level table is left absolute",
+              project.Levels[0].StartFrame == 9749 && project.Levels[0].IntroEndFrame == 9984);
+        Check("relative: the conversion is reported",
+              result.Warnings.Any(w => w.Contains("RelativeFrames") && w.Contains("converted")));
+
+        // The secret level is a distinct branch, not more scenes for Level 2.
+        // Left unmatched, `elseif thisLevel == levelSecret` kept currentLevel on
+        // the level above and quietly handed it the bonus level's scenes — with
+        // the wrong base under RelativeFrames, 68,578 frames out in this script.
+        Check("relative: the secret level does not join the level above",
+              project.Levels[1].SceneIds.Count == 1);
+        Check("relative: the secret level is reported, not silently dropped",
+              result.Warnings.Any(w => w.Contains("levelSecret")));
+        Check("relative: only the real levels are imported", result.Levels == 2);
+
+        // The export must say false, or the framework adds each level's start a
+        // second time to numbers that already carry it.
+        SingeExporter.Result exported = SingeExporter.Export(project);
+        Check("relative: the exported script sets RelativeFrames = false",
+              exported.Script.Contains("RelativeFrames = false"));
+        SingeTemplate.Result filled = SingeTemplate.Apply(project, """
+            RelativeFrames = true
+            """);
+        Check("relative: a template's RelativeFrames = true is overwritten",
+              filled.Script.Contains("RelativeFrames = false"));
+
+        // An absolute script must come through untouched.
+        var plain = new LdpProject { Name = "Absolute" };
+        SingeImporter.Import(plain, script.Replace("RelativeFrames = true", "RelativeFrames = false"));
+        Check("relative: an absolute script keeps its frames",
+              plain.Clips.Any(c => c is { Name: "L1 S1", StartFrame: 236, EndFrame: 2047 }));
     }
 
     /// <summary>
@@ -479,27 +592,6 @@ public static class ImportFidelityTest
         Check("import: no warning for resolvable scene bounds",
               !offsetResult.Warnings.Any(w => w.Contains("could not be resolved")));
 
-        // RelativeFrames means the two numbers are in different units, so the
-        // intro check must stand down rather than "correct" a load-bearing value.
-        var relProject = new LdpProject { Name = "Relative" };
-        SingeImporter.Result rel = SingeImporter.Import(relProject, """
-            RelativeFrames = true
-
-            Level[1] = {"Base", 19030, 21775, 1, 0, 0, -1}
-
-            function setupMoves(thisLevel, thisScene)
-                if thisLevel == 1 then
-                    if thisScene == 1 then
-                        sceneStart = 0
-                        sceneEnd = 600
-                    end
-                end
-            end
-            """);
-        Check("import: RelativeFrames leaves the intro alone",
-              relProject.Levels[0].IntroEndFrame == 21775);
-        Check("import: RelativeFrames is called out",
-              rel.Warnings.Any(w => w.Contains("RelativeFrames")));
 
         // The whole importer against a Windows-saved script. This is the check
         // that would have caught the anchor bug: the reference script on disk is

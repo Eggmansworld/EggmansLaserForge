@@ -195,6 +195,10 @@ Around those, the layout stays constant:
   the total.
 - The jog buttons step you around: **⏮  −100  −10  −1  ▶  +1  +10  +100  ⏭**.
 - **Go to** lets you jump straight to a frame number if you ever need to.
+- Beside it, a small **hh:mm:ss** clock shows roughly how far into the video
+  you are. It follows every way of moving — buttons, keys, slider, playback —
+  and is there purely to orient you. Frames remain the unit the app works in;
+  the clock is rounded to the second and never feeds back into a frame number.
 - The **slider** and the little **marker strip** above it show where you are
   and where your scenes sit.
 - Almost everything has a **keyboard shortcut** (see §15) — most authors work
@@ -472,6 +476,16 @@ out, and a dialog gives you everything to run it:
 > they belong to the project, not the script. The app asks first when there's
 > something to replace, and **Ctrl+Z** undoes the whole import.
 
+> **Relative frames are converted to real ones.** Some scripts set
+> `RelativeFrames = true`, which means every `sceneStart`, `sceneEnd` and move
+> frame in them is counted **from the start of its own level** rather than from
+> the start of the disc — Tron's `move[1] = {271, 286, UP, 23}` is really frame
+> 10020, because Level 1 begins at 9749. LaserForge folds that base in on import,
+> so what you see in the editor is the frame you see on the video, and the script
+> it exports sets `RelativeFrames = false` to match. Nothing else moves: the
+> `Death[]` table, the `Level[]` lines and the menu slots are already real frame
+> numbers under both settings.
+
 Your video, audio, and generated frame-index files are **not** part of the
 project file — keep the originals safe yourself.
 
@@ -504,6 +518,27 @@ relabel — frames are added or dropped so the clip plays at the right speed —
 which is why it's meant for a clip you have **not** added to the project yet. This
 is perfect for extra videos you may want to add to your game, such as movie or TV
 trailers you download from other sources that may have a different frame rate.
+
+### HDR sources
+
+A 4K HDR master (HEVC HDR10 or HLG) does not hold picture the way an `.m2v`
+does. Its brightness sits on the **PQ** curve, built for displays ten times
+brighter than SDR, and its colours are measured against the much wider
+**BT.2020** triangle. MPEG-2 has neither, and Hypseus plays plain 8-bit BT.709.
+
+Encoded straight across, every number in the file survives and every number
+*means* something different — ordinary picture content lands high on a curve
+that then gets read as normal gamma, and BT.2020 colours read as BT.709 collapse
+toward grey. The result is a video that looks washed out, milky and almost
+colourless, which is exactly what it is.
+
+**Convert Video to M2V** now spots this on the probe and pre-ticks **Convert
+HDR to SDR** for that file, tone-mapping the picture properly on the way in and
+tagging the result BT.709 so nothing downstream tries to "fix" it again. The
+resize happens inside the conversion, while the picture is still in linear light
+and full precision, rather than after. You can untick it per file, and the exact
+FFmpeg command is shown as always. Sources that are already BT.709 are untouched
+and the option doesn't appear for them.
 
 ---
 

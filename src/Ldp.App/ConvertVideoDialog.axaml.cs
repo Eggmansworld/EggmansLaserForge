@@ -39,6 +39,14 @@ public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
     /// <summary>True when the user picked "Custom…" rather than a preset.</summary>
     public bool CustomScale { get; set; }
 
+    /// <summary>
+    /// Colour treatment for this source. Set from the probe — an HDR master
+    /// defaults to being tone-mapped, because handing HDR samples to an MPEG-2
+    /// encoder untouched is never what anyone wants — and the user can turn it
+    /// off per file.
+    /// </summary>
+    public ColorConversion Color { get; set; }
+
     /// <summary>Generate "Chapter X (imported)" scenes from the source's chapter
     /// markers after the converted video is added to the project.</summary>
     public bool ImportChapters { get; set; }
@@ -76,11 +84,15 @@ public sealed class ConvertSourceItem(string path) : INotifyPropertyChanged
         // of markers (or a lone marker) start unticked.
         ImportChapters = media.Chapters.Count is >= 2 and <= 60;
 
+        Color = media.SuggestedColorConversion;
+
         string fps = media.Fps > 0 ? $" · {media.Fps:0.##} fps" : "";
         string tracks = $" · {media.AudioTracks.Count} audio track{(media.AudioTracks.Count == 1 ? "" : "s")}";
         string chapters = media.Chapters.Count > 0 ? $" · {media.Chapters.Count} chapters" : "";
         string warn = media.ExceedsHypseusLimit ? " · above 1080p — downscale recommended" : "";
-        Info = $"{media.Width}×{media.Height}{fps}{tracks}{chapters}{warn}";
+        string hdr = media.IsHdr ? " · HDR — will be tone-mapped"
+                   : media.IsWideGamut ? " · BT.2020 — will be converted to BT.709" : "";
+        Info = $"{media.Width}×{media.Height}{fps}{tracks}{chapters}{warn}{hdr}";
     }
 }
 
@@ -376,6 +388,39 @@ public partial class ConvertVideoDialog : Window
                 ResWarning.IsVisible = false;
             }
 
+            // Colour. Only shown for a source that is not already BT.709 SDR —
+            // there is nothing to decide otherwise, and an always-present
+            // checkbox invites turning it on for a file that doesn't need it.
+            if (item?.Media is { } cmi && cmi.SuggestedColorConversion != ColorConversion.None)
+            {
+                ColorPanel.IsVisible = true;
+                ColorFileTag.Text = tag;
+                ColorConvertCheck.IsEnabled = !_converting && AudioOnlyCheck.IsChecked != true;
+                ColorConvertCheck.IsChecked = item.Color != ColorConversion.None;
+                if (cmi.IsHdr)
+                {
+                    ColorConvertCheck.Content = "Convert HDR to SDR (tone-map to BT.709)";
+                    ColorHint.Text =
+                        $"This source is HDR ({cmi.ColorInfo}). Hypseus plays 8-bit BT.709 SDR, so without this the " +
+                        "HDR samples are encoded unchanged and the picture comes out washed out and almost " +
+                        $"colourless. Tone-mapped with the '{FfmpegCommand.ToneMapOperator}' curve, which keeps " +
+                        "bright highlights instead of clipping them. Leave this on unless you have a reason not " +
+                        "to — it roughly doubles the conversion time, which is the only cost.";
+                }
+                else
+                {
+                    ColorConvertCheck.Content = "Convert BT.2020 colour to BT.709";
+                    ColorHint.Text =
+                        $"This source uses the wide BT.2020 gamut ({cmi.ColorInfo}) but is not HDR. Shown as BT.709 " +
+                        "its colours read off the wrong triangle and look undersaturated, so the primaries are " +
+                        "converted. No tone-mapping is needed.";
+                }
+            }
+            else
+            {
+                ColorPanel.IsVisible = false;
+            }
+
             // Chapters → scenes (only meaningful when the video joins the project).
             if (item?.Media is { Chapters.Count: > 0 } cm)
             {
@@ -445,6 +490,7 @@ public partial class ConvertVideoDialog : Window
         VideoBitrateBox.IsEnabled = on && VqCustom.IsChecked == true;
         ResCombo.IsEnabled = on && Sel != null;
         WidthBox.IsEnabled = HeightBox.IsEnabled = on;
+        ColorConvertCheck.IsEnabled = on;
     }
 
     private void OnLangTrackToggled(object? sender, RoutedEventArgs e)
@@ -475,7 +521,16 @@ public partial class ConvertVideoDialog : Window
                 langs.Add((ordinal, suffix, LanguageCodes.DisplayName(track.Language)));
             }
         }
-        return FfmpegCommand.Build(s.Path, o, null, s.AudioTrack, s.Scale, langs);
+        return FfmpegCommand.Build(s.Path, o, null, s.AudioTrack, s.Scale, langs, s.Color);
+    }
+
+    private void OnColorToggled(object? sender, RoutedEventArgs e)
+    {
+        if (_updatingPerFile || Sel is not { } item || item.Media == null) return;
+        item.Color = ColorConvertCheck.IsChecked == true
+            ? item.Media.SuggestedColorConversion
+            : ColorConversion.None;
+        UpdateCommandPreview();
     }
 
     private void OnTrackChanged(object? sender, SelectionChangedEventArgs e)

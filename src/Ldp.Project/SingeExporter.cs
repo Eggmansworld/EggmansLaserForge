@@ -62,6 +62,7 @@ public static class SingeExporter
         // ---- Levels ----
         sb.AppendLine($"finalstage = {project.Levels.Count}");
         sb.AppendLine("AllowSecret = false");
+        sb.AppendLine("RelativeFrames = false");
         sb.AppendLine();
         sb.AppendLine(gen.BuildLevelLines());
         sb.AppendLine();
@@ -211,6 +212,12 @@ public sealed class SingeGen
             .Max();
         _values["offsetMovieEnd"] = movieEnd.ToString();
         _values["finalstage"] = _project.Levels.Count.ToString();
+
+        // Every frame this app stores is a disc frame, so the export must say
+        // so. A template taken from a RelativeFrames game would otherwise carry
+        // the `true` through, and setupFrames would add each level's start
+        // frame a second time to numbers that already include it.
+        _values["RelativeFrames"] = "false";
 
         // The pre-game difficulty screen (built from the four difficulty-select
         // frames) belongs to FrameworkKimmy. Under Framework the player picks

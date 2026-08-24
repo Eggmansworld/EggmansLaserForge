@@ -162,6 +162,23 @@
                     </StackPanel>
                 </Border>
 
+                <!-- COLOUR (per selected file; only shown when the source needs it) -->
+                <Border Name="ColorPanel" IsVisible="False"
+                        Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
+                    <StackPanel Spacing="8">
+                        <DockPanel>
+                            <TextBlock Text="COLOUR" Foreground="{DynamicResource FgFaint}" FontSize="11"
+                                       FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Name="ColorFileTag" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                       Foreground="{DynamicResource FgMuted}" FontSize="11"
+                                       VerticalAlignment="Center" Text=""/>
+                        </DockPanel>
+                        <CheckBox Name="ColorConvertCheck" Click="OnColorToggled" Content=""/>
+                        <TextBlock Name="ColorHint" TextWrapping="Wrap" FontSize="12"
+                                   Margin="26,0,0,0" Foreground="{DynamicResource FgFaint}" Text=""/>
+                    </StackPanel>
+                </Border>
+
                 <!-- AUDIO -->
                 <Border Background="{DynamicResource BgPanel}" CornerRadius="6" Padding="14">
                     <StackPanel Spacing="6">

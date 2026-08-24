@@ -115,6 +115,13 @@
                             <TextBox Name="GotoBox" Width="96" FontFamily="Consolas,monospace" FontSize="14"
                                      KeyDown="OnGotoKeyDown" PlaceholderText="frame #"/>
                             <Button Name="GotoButton" Content="→" Focusable="False" Width="34" Click="OnGotoClicked"/>
+                            <!-- Elapsed time at the current frame. Dimmer and smaller
+                                 than the frame counter on purpose: frames are what this
+                                 app works in, this is only for orienting yourself. -->
+                            <TextBlock Name="TimecodeText" Text="--:--:--" Margin="10,0,0,0"
+                                       FontFamily="Consolas,monospace" FontSize="15"
+                                       Foreground="{DynamicResource FrameTextDim}" VerticalAlignment="Center"
+                                       ToolTip.Tip="Approximate elapsed time at this frame (hh:mm:ss)"/>
                         </StackPanel>
 
                         <Border Width="75"/>

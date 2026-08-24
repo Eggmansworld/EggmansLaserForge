@@ -54,6 +54,38 @@ public sealed class MediaInfo
     public List<AudioTrackInfo> AudioTracks { get; } = [];
     public List<ChapterInfo> Chapters { get; } = [];
 
+    /// <summary>
+    /// The colour description FFmpeg prints beside the pixel format, e.g.
+    /// <c>tv, bt2020nc/bt2020/smpte2084</c> (range, matrix/primaries/transfer).
+    /// FFmpeg collapses it to one value when all three agree — an ordinary SDR
+    /// file prints <c>tv, bt709</c> — so this is matched on content, not shape.
+    /// Empty when the file declares nothing.
+    /// </summary>
+    public string ColorInfo { get; private set; } = "";
+
+    /// <summary>
+    /// True for HDR10/HDR10+ (<c>smpte2084</c>, the PQ curve) and HLG
+    /// (<c>arib-std-b67</c>). Both encode light on a curve built for 1,000+ nit
+    /// displays; an MPEG-2 decoder has no idea and reads the samples as ordinary
+    /// gamma, which is what makes an untreated conversion look washed out.
+    /// </summary>
+    public bool IsHdr =>
+        ColorInfo.Contains("smpte2084", StringComparison.OrdinalIgnoreCase) ||
+        ColorInfo.Contains("arib-std-b67", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// True for BT.2020 primaries. A wide-gamut source shown as BT.709 has its
+    /// colours read off the wrong triangle, which pulls saturation toward grey.
+    /// It travels with HDR but also occurs on its own.
+    /// </summary>
+    public bool IsWideGamut => ColorInfo.Contains("bt2020", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What this source needs to reach the BT.709 SDR that Hypseus plays.</summary>
+    public ColorConversion SuggestedColorConversion =>
+        IsHdr ? ColorConversion.HdrToneMap
+        : IsWideGamut ? ColorConversion.GamutOnly
+        : ColorConversion.None;
+
     public bool HasVideo => Width > 0 && Height > 0;
 
     /// <summary>True when the picture is larger than Hypseus's practical 1080p
@@ -86,6 +118,14 @@ public sealed class MediaInfo
     private static readonly Regex ChapterRx = new(
         @"^\s*Chapter\s+#\d+:\d+:\s*start\s+(?<s>\d+(?:\.\d+)?),\s*end\s+(?<e>\d+(?:\.\d+)?)",
         RegexOptions.Compiled);
+
+    // The parenthesised group beside the pixel format, picked out by the fact
+    // that it names a colorimetry standard. Splitting the stream line on commas
+    // cannot find it — the group contains one ("tv, bt2020nc/bt2020/smpte2084").
+    private static readonly Regex ColorRx = new(
+        @"\(([^()]*\b(?:bt709|bt470\w*|bt2020\w*|smpte170m|smpte240m|smpte2084|smpte428|arib-std-b67|" +
+        @"iec61966[\w-]*|linear|log\d*|gbr|fcc|ycgco|unknown)\b[^()]*)\)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>Parses the stderr text of <c>ffmpeg -i file</c> (the run "fails"
     /// with "At least one output file must be specified" — that's expected).</summary>
@@ -148,6 +188,8 @@ public sealed class MediaInfo
                     }
                 if (FpsRx.Match(detail) is { Success: true } f)
                     info.Fps = double.Parse(f.Groups["fps"].Value, CultureInfo.InvariantCulture);
+                if (ColorRx.Match(detail) is { Success: true } c)
+                    info.ColorInfo = c.Groups[1].Value.Trim();
             }
             else // Audio
             {

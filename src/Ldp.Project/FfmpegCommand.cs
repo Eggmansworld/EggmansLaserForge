@@ -20,6 +20,30 @@ public enum VideoQuality
     Custom,
 }
 
+/// <summary>
+/// What a source's colour needs doing to it on the way to a Hypseus .m2v.
+///
+/// MPEG-2 is 8-bit BT.709 SDR and Hypseus plays it as such. A 4K HDR master is
+/// neither: its samples sit on the PQ (or HLG) curve, which spreads brightness
+/// over a 10,000-nit range, and its colours are read off the BT.2020 triangle.
+/// Handing those samples straight to the MPEG-2 encoder keeps every number and
+/// changes what every number MEANS — ordinary picture content lands high on a
+/// curve that is then read as plain gamma, so the whole image comes out milky
+/// and low-contrast, and BT.2020 coordinates read as BT.709 collapse toward
+/// grey. That is the "subdued, almost greyish, very little colour" result.
+/// </summary>
+public enum ColorConversion
+{
+    /// <summary>Source is already BT.709 SDR: encode its samples as they are.</summary>
+    None,
+
+    /// <summary>HDR10/HLG: tone-map to SDR and convert the gamut.</summary>
+    HdrToneMap,
+
+    /// <summary>SDR already, but wide-gamut: convert BT.2020 primaries to BT.709.</summary>
+    GamutOnly,
+}
+
 /// <summary>Vorbis encode quality for the .ogg output.</summary>
 public enum AudioQuality
 {
@@ -105,6 +129,64 @@ public static class FfmpegCommand
         return false;
     }
 
+    /// <summary>
+    /// Tone-mapping curve. Hable holds highlights instead of clipping them,
+    /// which matters for a film like Tron Legacy where the picture is mostly
+    /// dark with small very bright sources — <c>clip</c> would flatten every
+    /// light strip to white.
+    /// </summary>
+    public const string ToneMapOperator = "hable";
+
+    /// <summary>
+    /// Reference white in nits for the linear stage. 100 is SDR diffuse white,
+    /// so ordinary picture content keeps roughly the brightness it had and only
+    /// the genuine highlights get compressed.
+    /// </summary>
+    public const int NominalPeakLuminance = 100;
+
+    /// <summary>
+    /// The <c>-vf</c> chain, or null when the picture needs nothing done to it.
+    ///
+    /// For a colour conversion the resize is folded into the last zscale rather
+    /// than left as a separate <c>scale</c>: that puts it in linear light, before
+    /// the transfer curve goes back on and before the drop to 8-bit, which is
+    /// both the correct place for it and one less full-frame pass.
+    ///
+    /// <c>desat=0</c> turns off tonemap's highlight desaturation. It defaults on
+    /// and pulls bright areas toward white — the opposite of what this whole
+    /// conversion is for.
+    /// </summary>
+    public static string? VideoFilter((int Width, int Height)? scale, ColorConversion color)
+    {
+        string size = scale is { } s ? $"w={s.Width}:h={s.Height}:" : "";
+        return color switch
+        {
+            ColorConversion.HdrToneMap =>
+                $"zscale=t=linear:npl={NominalPeakLuminance}," +
+                "format=gbrpf32le," +
+                "zscale=p=bt709," +
+                $"tonemap=tonemap={ToneMapOperator}:desat=0," +
+                $"zscale={size}t=bt709:m=bt709:r=tv," +
+                "format=yuv420p",
+
+            // Already on a normal gamma curve, so no linear round trip is
+            // needed: just move the primaries onto the BT.709 triangle.
+            ColorConversion.GamutOnly =>
+                $"zscale={size}p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p",
+
+            _ => scale is { } only ? $"scale={only.Width}:{only.Height}" : null,
+        };
+    }
+
+    /// <summary>
+    /// Output colour tags. Without them the .m2v inherits the source's BT.2020 /
+    /// PQ description and claims to be HDR while holding SDR pixels — which is
+    /// how the current file is tagged, and would send any player that honours
+    /// the tags off tone-mapping an image that has already been tone-mapped.
+    /// </summary>
+    private static readonly string[] Bt709Tags =
+        ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"];
+
     /// <summary>Builds the job for one input file. Outputs land next to the source
     /// (or in <paramref name="outputDir"/>) under the source's base name.
     /// <paramref name="audioTrack"/> selects which audio stream becomes the main
@@ -115,7 +197,8 @@ public static class FfmpegCommand
     /// <c>{base}{suffix}.ogg</c> language tracks with the same audio settings.</summary>
     public static FfmpegJob Build(string inputPath, ConvertOptions o, string? outputDir = null,
                                   int audioTrack = 0, (int Width, int Height)? scale = null,
-                                  IReadOnlyList<(int Track, string Suffix, string LanguageName)>? languageTracks = null)
+                                  IReadOnlyList<(int Track, string Suffix, string LanguageName)>? languageTracks = null,
+                                  ColorConversion color = ColorConversion.None)
     {
         string dir = outputDir ?? Path.GetDirectoryName(Path.GetFullPath(inputPath)) ?? ".";
         string baseName = Path.GetFileNameWithoutExtension(inputPath);
@@ -128,11 +211,13 @@ public static class FfmpegCommand
         if (!o.AudioOnly)
         {
             video.AddRange(["-y", "-i", inputPath]);
-            if (scale is { } s)
-                video.AddRange(["-vf", $"scale={s.Width}:{s.Height}"]);
+            if (VideoFilter(scale, color) is { } filter)
+                video.AddRange(["-vf", filter]);
             video.Add("-an");
             video.AddRange(VideoQualityArgs(o));
-            video.AddRange(["-codec:v", "mpeg2video", m2v]);
+            video.AddRange(["-codec:v", "mpeg2video"]);
+            if (color != ColorConversion.None) video.AddRange(Bt709Tags);
+            video.Add(m2v);
         }
 
         List<string> AudioArgsFor(int track, string outPath)

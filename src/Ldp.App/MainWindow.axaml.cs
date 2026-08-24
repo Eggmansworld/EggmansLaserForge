@@ -2079,7 +2079,12 @@ public partial class MainWindow : Window
 
     private void UpdateCounter()
     {
-        FrameCounter.Text = CurrentGlobal.ToString().PadLeft(_counterDigits, '0');
+        int global = CurrentGlobal;
+        FrameCounter.Text = global.ToString().PadLeft(_counterDigits, '0');
+        // Every way of moving — buttons, keys, slider, jog, playback, Go to —
+        // arrives here, so the clock follows all of them without each one
+        // having to remember to update it.
+        TimecodeText.Text = _project?.TimecodeAtGlobal(global) ?? "--:--:--";
         if (!_updatingSlider)
         {
             _updatingSlider = true;

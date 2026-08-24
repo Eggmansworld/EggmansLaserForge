@@ -132,6 +132,107 @@ public static class FfmpegCommandTest
         RunChaptersAndLanguages(Check);
         BlankChecks(Check, dir);
         FrameRateChecks(Check, dir);
+        ColorChecks(Check, dir);
+    }
+
+    /// <summary>
+    /// HDR sources. A 4K HDR master carries its brightness on the PQ curve and
+    /// its colours on the BT.2020 triangle; MPEG-2 is 8-bit BT.709 SDR and
+    /// Hypseus plays it as such. Encoding the samples unchanged keeps every
+    /// number and changes what every number means, which is why TronLegacy.m2v
+    /// came out "subdued, almost greyish, with very little colour" — measured at
+    /// SATAVG 5.51 against 8.55 for the same frame tone-mapped.
+    ///
+    /// The stream lines below are FFmpeg's own, verbatim.
+    /// </summary>
+    private static void ColorChecks(Action<string, bool> Check, string dir)
+    {
+        MediaInfo hdr = MediaInfo.Parse(
+            "  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/smpte2084), " +
+            "3840x2160 [SAR 1:1 DAR 16:9], 23.98 fps, 23.98 tbr, 1k tbn (default)");
+        Check("color: HDR10 is detected", hdr.IsHdr && hdr.IsWideGamut);
+        Check("color: HDR10 reads its descriptor", hdr.ColorInfo == "tv, bt2020nc/bt2020/smpte2084");
+        Check("color: HDR10 asks to be tone-mapped",
+              hdr.SuggestedColorConversion == ColorConversion.HdrToneMap);
+        Check("color: the rest of the line still parses",
+              hdr is { Width: 3840, Height: 2160, VideoCodec: "hevc (Main 10)" } && hdr.Fps == 23.98);
+
+        MediaInfo hlg = MediaInfo.Parse(
+            "  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/arib-std-b67), 3840x2160");
+        Check("color: HLG counts as HDR too", hlg.IsHdr);
+
+        // FFmpeg collapses the descriptor to one value when all three agree, so
+        // an ordinary SDR file must not look like it needs anything doing.
+        MediaInfo sdr = MediaInfo.Parse(
+            "  Stream #0:0: Video: h264 (High), yuv420p(tv, bt709), 1920x1080 [SAR 1:1 DAR 16:9], 23.98 fps");
+        Check("color: plain BT.709 needs nothing",
+              !sdr.IsHdr && !sdr.IsWideGamut && sdr.SuggestedColorConversion == ColorConversion.None);
+
+        MediaInfo bare = MediaInfo.Parse("  Stream #0:0: Video: mpeg2video (Main), yuv420p, 720x480, 29.97 fps");
+        Check("color: a file that declares nothing needs nothing",
+              bare.ColorInfo.Length == 0 && bare.SuggestedColorConversion == ColorConversion.None);
+
+        // Wide gamut without HDR: the gamut alone is wrong, no tone-map needed.
+        MediaInfo wide = MediaInfo.Parse(
+            "  Stream #0:0: Video: hevc (Main 10), yuv420p10le(tv, bt2020nc/bt2020/bt709), 3840x2160");
+        Check("color: wide-gamut SDR converts the gamut only",
+              !wide.IsHdr && wide.SuggestedColorConversion == ColorConversion.GamutOnly);
+
+        // ---- The filter chain ----
+        Check("color: no conversion and no scale means no filter at all",
+              FfmpegCommand.VideoFilter(null, ColorConversion.None) == null);
+        Check("color: scale alone is untouched",
+              FfmpegCommand.VideoFilter((1920, 1080), ColorConversion.None) == "scale=1920:1080");
+
+        string chain = FfmpegCommand.VideoFilter((1920, 1080), ColorConversion.HdrToneMap)!;
+        Check("color: tone-map chain exact", chain ==
+              "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709," +
+              "tonemap=tonemap=hable:desat=0,zscale=w=1920:h=1080:t=bt709:m=bt709:r=tv,format=yuv420p");
+        // The resize belongs inside the linear stage: scaling after the transfer
+        // curve is back on, in 8-bit, throws away what the tone-map recovered.
+        Check("color: the resize happens before the output transfer",
+              chain.IndexOf("w=1920:h=1080", StringComparison.Ordinal) <
+              chain.IndexOf("format=yuv420p", StringComparison.Ordinal) &&
+              !chain.Contains("scale=1920:1080"));
+        Check("color: tonemap runs on float RGB",
+              chain.IndexOf("format=gbrpf32le", StringComparison.Ordinal) <
+              chain.IndexOf("tonemap=", StringComparison.Ordinal));
+        // desat defaults ON and pulls highlights toward white, which is the very
+        // thing this conversion exists to stop.
+        Check("color: highlight desaturation is off", chain.Contains("desat=0"));
+        Check("color: tone-mapping without a downscale keeps the source size",
+              FfmpegCommand.VideoFilter(null, ColorConversion.HdrToneMap) ==
+              "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709," +
+              "tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p");
+        Check("color: gamut-only skips the linear round trip",
+              FfmpegCommand.VideoFilter((1920, 1080), ColorConversion.GamutOnly) ==
+              "zscale=w=1920:h=1080:p=bt709:t=bt709:m=bt709:r=tv,format=yuv420p" &&
+              !FfmpegCommand.VideoFilter(null, ColorConversion.GamutOnly)!.Contains("tonemap"));
+
+        // ---- The built job ----
+        string input = System.IO.Path.Combine(dir, "TronLegacy.mkv");
+        IReadOnlyList<string> args = FfmpegCommand
+            .Build(input, new ConvertOptions(), dir, 0, (1920, 1080), null, ColorConversion.HdrToneMap)
+            .VideoArgs;
+        Check("color: the job carries the tone-map filter",
+              PositionOf(args, "-vf") >= 0 && args[PositionOf(args, "-vf") + 1] == chain);
+        // Without these the .m2v inherits the source's BT.2020/PQ description and
+        // claims to be HDR while holding SDR pixels — exactly how the file the
+        // app produced today is tagged.
+        Check("color: the output is tagged BT.709",
+              PositionOf(args, "-color_primaries") >= 0 && PositionOf(args, "-color_trc") >= 0 &&
+              PositionOf(args, "-colorspace") >= 0);
+        Check("color: the tags come before the output file",
+              PositionOf(args, "-colorspace") < args.Count - 1 &&
+              args[^1] == System.IO.Path.Combine(dir, "TronLegacy.m2v"));
+        Check("color: an SDR job gains no tags and no chain",
+              FfmpegCommand.Build(input, new ConvertOptions(), dir, 0, (1920, 1080)).VideoArgs
+                  is var plain &&
+              PositionOf(plain, "-colorspace") < 0 &&
+              plain[PositionOf(plain, "-vf") + 1] == "scale=1920:1080");
+        Check("color: audio-only mode builds no video pass at all",
+              FfmpegCommand.Build(input, new ConvertOptions { AudioOnly = true }, dir, 0, null, null,
+                                  ColorConversion.HdrToneMap).VideoArgs.Count == 0);
     }
 
     /// <summary>Chapter parsing + chapter→scene math + language-code helpers.</summary>

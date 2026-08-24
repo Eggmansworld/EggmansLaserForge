@@ -29,7 +29,15 @@ public static partial class SingeImporter
     [GeneratedRegex(@"^\s*Level\[(\d+)\]\s*=\s*\{\s*""([^""]*)""\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)", RegexOptions.Multiline)]
     private static partial Regex LevelPattern();
 
-    [GeneratedRegex(@"(?:else)?if\s+thisLevel\s*==\s*(\d+)")]
+    /// <summary>
+    /// The level a setupMoves branch belongs to. The number is usually written
+    /// out, but `elseif thisLevel == levelSecret then` is the framework's own
+    /// spelling for the bonus level (globals.singe: levelSecret = 1000), and a
+    /// digits-only pattern skips it — leaving currentLevel on the PREVIOUS
+    /// branch, which quietly adopts the secret level's scenes into the last
+    /// real level. Tron_1982 imported with an eleven-scene Level 9 that way.
+    /// </summary>
+    [GeneratedRegex(@"(?:else)?if\s+thisLevel\s*==\s*(\w+)")]
     private static partial Regex LevelBranchPattern();
 
     /// <summary>Scene and move frames are relative to each level's start when this is on.</summary>
@@ -230,11 +238,32 @@ public static partial class SingeImporter
             };
         }
 
+        // ---- RelativeFrames ----
+        // With it on, setupFrames adds Level[thisLevel][INTROCLIP] - the level's
+        // own start frame - to sceneStart, sceneEnd and both frames of every
+        // move (main.singe:6392). So the numbers in setupMoves are offsets into
+        // the level, not disc frames, and reading them as disc frames imports a
+        // game whose every scene sits thousands of frames early.
+        //
+        // They are folded into absolute frames here and the export writes
+        // RelativeFrames = false, because there is no reason to carry the
+        // indirection: it makes every frame in the editor a number you cannot
+        // check against the video, and the two conventions look identical on
+        // screen. Death[], Level[] and the menu slots are already absolute under
+        // both settings - setupFrames never touches them - so they are left be.
+        bool relativeFrames = RelativeFramesPattern().IsMatch(scriptText);
+
         // ---- setupMoves: walk the function line by line, tracking branches ----
         int setupStart = scriptText.IndexOf("function setupMoves", StringComparison.Ordinal);
         string body = setupStart >= 0 ? scriptText[setupStart..] : "";
         int currentLevel = 0;
         int currentScene = 0;
+        // The base added to this level's frames: 0 unless RelativeFrames is on.
+        int levelBase = 0;
+        // A branch this importer deliberately does not adopt (the secret level),
+        // so its scenes are skipped outright instead of joining the level above.
+        bool skipBranch = false;
+        int skippedSecretScenes = 0;
         Clip? scene = null;
         int sceneCount = 0, moveCount = 0;
         // Branch tables, banked while walking and attached to their moves after.
@@ -248,12 +277,39 @@ public static partial class SingeImporter
         {
             string line = rawLine.TrimEnd();
             Match levelBranch = LevelBranchPattern().Match(line);
-            if (levelBranch.Success) { currentLevel = int.Parse(levelBranch.Groups[1].Value); scene = null; }
+            if (levelBranch.Success)
+            {
+                scene = null;
+                string branchName = levelBranch.Groups[1].Value;
+                skipBranch = false;
+                if (int.TryParse(branchName, out int branchLevel)) currentLevel = branchLevel;
+                else if (branchName == "levelSecret")
+                {
+                    // The bonus level. Nothing here can express one: levels
+                    // export renumbered 1..N with finalstage and PlayOrder built
+                    // from the same count, so adopting it would promote the
+                    // secret level to a mandatory last stage of the story.
+                    currentLevel = 0;
+                    skipBranch = true;
+                }
+                else if (LuaValues.Resolve(branchName, symbols) is { } namedLevel) currentLevel = namedLevel;
+                else
+                {
+                    currentLevel = 0;
+                    skipBranch = true;
+                    warnings.Add($"setupMoves branches on 'thisLevel == {branchName}', which is not a level " +
+                                 "number this script defines - that branch's scenes were skipped");
+                }
+                levelBase = relativeFrames && levelDefs.TryGetValue(currentLevel, out GameLevel? baseLevel)
+                    ? baseLevel.StartFrame
+                    : 0;
+            }
             Match sceneBranch = SceneBranchPattern().Match(line);
             if (sceneBranch.Success) { currentScene = int.Parse(sceneBranch.Groups[1].Value); scene = null; }
 
             Match startMatch = SceneStartPattern().Match(line);
             Match endMatch = SceneEndPattern().Match(line);
+            if (startMatch.Success && skipBranch) { skippedSecretScenes++; scene = null; continue; }
             if (startMatch.Success && currentLevel > 0)
             {
                 if (LuaValues.Resolve(startMatch.Groups[1].Value, symbols) is not { } sceneStart)
@@ -263,6 +319,19 @@ public static partial class SingeImporter
                     scene = null;
                     continue;
                 }
+                // Under RelativeFrames every number in this branch counts from
+                // the level's start. Without a Level[] line there is no base to
+                // count from, and importing the offset raw is the bug being
+                // fixed - so the scene is reported rather than imported wrong.
+                if (relativeFrames && !levelDefs.ContainsKey(currentLevel))
+                {
+                    warnings.Add($"L{currentLevel} S{currentScene}: this script sets RelativeFrames = true but has " +
+                                 $"no Level[{currentLevel}] line, so there is no start frame to measure from - " +
+                                 "scene skipped");
+                    scene = null;
+                    continue;
+                }
+                sceneStart += levelBase;
                 scene = new Clip
                 {
                     Name = $"L{currentLevel} S{currentScene}",
@@ -277,7 +346,8 @@ public static partial class SingeImporter
             }
             if (endMatch.Success && scene != null)
             {
-                if (LuaValues.Resolve(endMatch.Groups[1].Value, symbols) is { } sceneEnd) scene.EndFrame = sceneEnd;
+                if (LuaValues.Resolve(endMatch.Groups[1].Value, symbols) is { } sceneEnd)
+                    scene.EndFrame = sceneEnd + levelBase;
                 else warnings.Add($"L{currentLevel} S{currentScene}: sceneEnd '{endMatch.Groups[1].Value.Trim()}' " +
                                   "could not be resolved to a frame - scene end left at its start");
             }
@@ -296,6 +366,8 @@ public static partial class SingeImporter
                                  "resolved to numbers - skipped");
                     continue;
                 }
+                start += levelBase;
+                end += levelBase;
                 string token = move.Groups[3].Value;
                 int deathIndex = int.Parse(move.Groups[4].Value);
                 string? altToken = move.Groups[5].Success ? move.Groups[5].Value : null;
@@ -394,15 +466,15 @@ public static partial class SingeImporter
                          $"cannot be edited here yet — {info?.Note ?? "carried through untouched"}.");
         }
 
-        // A script that sets RelativeFrames makes a level's start frame the base
-        // every scene and move is measured from (main.singe:6403). This importer
-        // reads those numbers as absolute, so the intro check — which compares
-        // the two — would be comparing different units. Leave it alone and say so.
-        bool relativeFrames = RelativeFramesPattern().IsMatch(scriptText);
         if (relativeFrames)
-            warnings.Add("This script sets RelativeFrames = true, so its scene and move frames are " +
-                         "offsets from each level's start, not absolute frames. They have been imported " +
-                         "as-is and will need checking against the video.");
+            warnings.Add("This script sets RelativeFrames = true, so its scene and move frames were written as " +
+                         "offsets from each level's start frame. Every one of them has been converted to its " +
+                         "real frame number, and the exported script sets RelativeFrames = false to match.");
+
+        if (skippedSecretScenes > 0)
+            warnings.Add($"The secret level (Level[levelSecret]) and its {skippedSecretScenes} scene(s) were not " +
+                         "imported - levels export renumbered 1..N, so adopting it would turn the bonus level " +
+                         "into a required last stage. It is untouched in the original script.");
 
         // Adopt levels in numeric order and verify counts.
         foreach ((int number, GameLevel level) in levelDefs.OrderBy(kv => kv.Key))
@@ -411,7 +483,6 @@ public static partial class SingeImporter
             if (level.SceneIds.Count == 0)
                 warnings.Add($"Level[{number}] '{level.Title}' has no scenes in setupMoves");
 
-            if (relativeFrames) continue;
             int? firstScene = level.SceneIds
                 .Select(id => project.Clips.FirstOrDefault(c => c.Id == id))
                 .Where(c => c != null)
