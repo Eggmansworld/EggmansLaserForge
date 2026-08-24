@@ -95,7 +95,18 @@
         <!-- Transport controls -->
         <Border DockPanel.Dock="Bottom" Background="{DynamicResource BgBar}" Padding="12,6,12,10">
             <StackPanel Spacing="4">
-                <Canvas Name="MarkerStrip" Height="10" Margin="12,0" Background="Transparent"/>
+                <!-- What the video is used for, end to end. The line above it
+                     names whatever the playhead is over, and the right-hand
+                     figure is how much of the video the game never touches. -->
+                <DockPanel Margin="12,0,12,1">
+                    <TextBlock Name="TimelineUsage" DockPanel.Dock="Right" FontSize="11"
+                               FontFamily="Consolas,monospace" Foreground="{DynamicResource FgFaint}"
+                               VerticalAlignment="Bottom" Margin="12,0,0,0" Text=""
+                               ToolTip.Tip="How much of this video the game plays. Leftover footage is spare — worth a look before you call the project finished."/>
+                    <TextBlock Name="TimelineContext" FontSize="11" Foreground="{DynamicResource FgMuted}"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Bottom" Text=""/>
+                </DockPanel>
+                <app:TimelineStrip Name="Timeline" Margin="12,0"/>
                 <Slider Name="FrameSlider" Minimum="0" Maximum="0" IsEnabled="False"
                         Focusable="False" ValueChanged="OnSliderChanged"/>
 

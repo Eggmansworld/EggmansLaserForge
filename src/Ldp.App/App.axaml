@@ -50,6 +50,30 @@
         <SolidColorBrush x:Key="RowHover" Color="#14FFFFFF"/>
         <SolidColorBrush x:Key="RowMissing" Color="#24F0605C"/>
 
+        <!--
+          Timeline strip. These DO carry data - the one place in the app where
+          colour is the message - so each role gets its own hue and they are
+          kept apart in lightness as well, because a strip two pixels tall is
+          read by contrast long before hue.
+
+          Blue is deliberately reused from Accent: on the timeline the gameplay
+          IS the thing you act on, and a second blue would only compete with it.
+        -->
+        <SolidColorBrush x:Key="TimelineGameplay" Color="#4CC2FF"/>
+        <SolidColorBrush x:Key="TimelineIntro" Color="#3579A3"/>
+        <SolidColorBrush x:Key="TimelineDeath" Color="#F0605C"/>
+        <SolidColorBrush x:Key="TimelineSlot" Color="#B18CF0"/>
+        <SolidColorBrush x:Key="TimelineStill" Color="#D9C4FF"/>
+        <!-- Unassigned scenes are drawn hollow, so this is an edge, not a fill:
+             "you marked this and never wired it in" reads as an outline. -->
+        <SolidColorBrush x:Key="TimelineUnassigned" Color="#93A2C0"/>
+        <!-- Spare footage. Darker than any panel so it reads as a hole in the
+             strip rather than as another kind of content. -->
+        <SolidColorBrush x:Key="TimelineUnused" Color="#171A22"/>
+        <SolidColorBrush x:Key="TimelineLevelBand" Color="#47506B"/>
+        <SolidColorBrush x:Key="TimelineLevelBandAlt" Color="#5A6488"/>
+        <SolidColorBrush x:Key="TimelinePlayhead" Color="#F0B950"/>
+
         <!-- Density lives here, once, rather than being tuned per control. -->
         <Thickness x:Key="ListRowPadding">6,2</Thickness>
         <Thickness x:Key="FormRowPadding">8,3</Thickness>

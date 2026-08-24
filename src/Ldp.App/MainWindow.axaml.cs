@@ -57,6 +57,9 @@ public partial class MainWindow : Window
     private int? _markIn;         // global frame numbers, valid for _activeVideo
     private int? _markOut;
     private int? _playStopGlobal; // stop playback when this global frame is shown
+    // What the active video is used for. Rebuilt when the project changes, not
+    // when the frame does - the playhead is far cheaper to move than to remap.
+    private TimelineMap _timelineMap = TimelineMap.Empty;
 
     // Chained (storyboard flow) playback.
     private List<Clip>? _playQueue;
@@ -93,7 +96,9 @@ public partial class MainWindow : Window
             if (e.Property == TextBlock.TextProperty) AppendLog(StatusText.Text);
         };
         InteractionList.ItemsSource = _interactionItems;
-        MarkerStrip.SizeChanged += (_, _) => RepaintMarkerStrip();
+        // The strip redraws itself on resize; only the readouts below it need
+        // rebuilding, and clicking or dragging it seeks like the slider does.
+        Timeline.FrameRequested += async (_, frame) => await JumpToGlobalAsync(frame);
 
         // Scenes can be dragged from the bin onto the storyboard canvas.
         ClipList.AddHandler(PointerPressedEvent, OnClipListPointerPressed, RoutingStrategies.Tunnel);
@@ -2085,6 +2090,8 @@ public partial class MainWindow : Window
         // arrives here, so the clock follows all of them without each one
         // having to remember to update it.
         TimecodeText.Text = _project?.TimecodeAtGlobal(global) ?? "--:--:--";
+        Timeline.SetFrame(global);
+        UpdateTimelineReadouts();
         if (!_updatingSlider)
         {
             _updatingSlider = true;
@@ -2577,6 +2584,9 @@ public partial class MainWindow : Window
               (_markIn != null && _markOut != null ? $" ({_markOut - _markIn + 1} fr)" : "");
         NewClipButton.IsEnabled = _markIn != null && _markOut != null;
         ClearMarksButton.IsEnabled = _markIn != null || _markOut != null;
+        // The marks are drawn on the strip too, so a span being cut is seen
+        // against everything already on the timeline rather than as two numbers.
+        Timeline.SetMarks(_markIn, _markOut);
     }
 
     private void OnNewClip(object? sender, RoutedEventArgs e)
@@ -3044,46 +3054,52 @@ public partial class MainWindow : Window
                                  (violators.Count > 0 ? $"  ⚠ {violators.Count}" : "");
     }
 
+    /// <summary>
+    /// Rebuilds the whole timeline strip: what every stretch of the active video
+    /// is used for, and what nothing uses.
+    ///
+    /// This is the expensive one (it walks every scene and every move), so it is
+    /// called when the PROJECT changes, not when the frame does — the playhead
+    /// moves through <see cref="TimelineStrip.SetFrame"/> instead.
+    /// </summary>
     private void RepaintMarkerStrip()
     {
-        MarkerStrip.Children.Clear();
-        if (_project == null || _activeVideo < 0) return;
-        double width = MarkerStrip.Bounds.Width;
-        if (width <= 1) return;
-
-        VideoSource source = _project.Videos[_activeVideo];
-        int span = Math.Max(1, source.PictureCount - 1);
-        double XFor(int global) => (global - source.GlobalBase) / (double)span * width;
-
-        if (PanelClip is { } clip && SceneIsActive(clip))
+        if (_project == null || _activeVideo < 0)
         {
-            HashSet<Guid> violators = InteractionRules.FindViolators(clip, _project.BaseWindowFrames);
-
-            var band = new Avalonia.Controls.Shapes.Rectangle
-            {
-                Width = Math.Max(2, XFor(clip.EndFrame) - XFor(clip.StartFrame)),
-                Height = 3,
-                Fill = (Avalonia.Media.IBrush?)this.FindResource("Accent"),
-                Opacity = 0.45,
-            };
-            Canvas.SetLeft(band, XFor(clip.StartFrame));
-            Canvas.SetTop(band, 7);
-            MarkerStrip.Children.Add(band);
-
-            foreach (InteractionMarker marker in clip.Interactions)
-            {
-                var tick = new Avalonia.Controls.Shapes.Rectangle
-                {
-                    Width = 2,
-                    Height = 10,
-                    Fill = (Avalonia.Media.IBrush?)this.FindResource(
-                        violators.Contains(marker.Id) ? "PortDeath" : "AccentAmber"),
-                };
-                Canvas.SetLeft(tick, XFor(marker.Frame) - 1);
-                Canvas.SetTop(tick, 0);
-                MarkerStrip.Children.Add(tick);
-            }
+            Timeline.Update(TimelineMap.Empty, 0, null, [], null, null);
+            TimelineContext.Text = "";
+            TimelineUsage.Text = "";
+            return;
         }
+
+        _timelineMap = TimelineMap.Build(_project, _activeVideo);
+
+        // Every move in the video, not just the selected scene's. The scene
+        // being edited is drawn full height and the rest as stubs, so the shape
+        // of the whole game stays visible while one scene is worked on.
+        Guid? selected = PanelClip is { } panel && SceneIsActive(panel) ? panel.Id : null;
+        var ticks = new List<TimelineMoveTick>();
+        foreach (Clip clip in _project.Clips)
+        {
+            if (!SceneIsActive(clip) || clip.Interactions.Count == 0) continue;
+            bool isSelected = clip.Id == selected;
+            HashSet<Guid> violators = InteractionRules.FindViolators(clip, _project.BaseWindowFrames);
+            foreach (InteractionMarker marker in clip.Interactions)
+                ticks.Add(new TimelineMoveTick(marker.Frame, isSelected, violators.Contains(marker.Id)));
+        }
+
+        Timeline.Update(_timelineMap, CurrentGlobal, selected, ticks, _markIn, _markOut);
+        UpdateTimelineReadouts();
+    }
+
+    /// <summary>The line above the strip: what the playhead is over, and how
+    /// much of the video the game never plays.</summary>
+    private void UpdateTimelineReadouts()
+    {
+        TimelineContext.Text = Timeline.DescribeFrame(CurrentGlobal);
+        TimelineUsage.Text = _timelineMap.TotalFrames > 0
+            ? $"{_timelineMap.UsedFraction:P0} used · {_timelineMap.UnusedFrames:N0} frames spare"
+            : "";
     }
 
     private async void OnGotoClip(object? sender, RoutedEventArgs e)

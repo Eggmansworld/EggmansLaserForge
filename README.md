@@ -199,10 +199,45 @@ Around those, the layout stays constant:
   you are. It follows every way of moving — buttons, keys, slider, playback —
   and is there purely to orient you. Frames remain the unit the app works in;
   the clock is rounded to the second and never feeds back into a frame number.
-- The **slider** and the little **marker strip** above it show where you are
-  and where your scenes sit.
+- The **slider** moves you through the video, and the **timeline strip** above
+  it shows the whole video at once (see below).
 - Almost everything has a **keyboard shortcut** (see §15) — most authors work
   with the arrow keys and the letter keys, hands never leaving the keyboard.
+
+### The timeline strip
+
+The band above the slider is the **entire video, end to end**, colour-coded by
+what each stretch is for. It is always full, so you can see the shape of your
+whole game without scrolling or clicking anything.
+
+| Colour | What it is |
+|---|---|
+| 🟦 **Blue** | A gameplay scene — footage a level plays |
+| 🟦 **Dark blue** | A level's intro clip |
+| 🟥 **Red** | A death scene |
+| 🟪 **Violet** | A framework video slot (attract, title, Game Over…) |
+| ▫️ **Pale violet** | A single-frame still slot (menus, trophy, difficulty cards) |
+| ⬜ **Dashed outline** | A scene you marked that **nothing references** — no level plays it, no move dies to it, no slot holds it |
+| ⬛ **Dark / empty** | **Unused video.** No part of the game touches these frames |
+
+Above it, a thin band groups scenes into **levels**, numbered and named where
+there's room. Below it, **amber ticks** are player moves — the selected scene's
+moves stand full height, every other move in the video is a shorter stub, so
+you can see how busy the game is without losing the scene you're editing. A
+move that breaks the spacing rules turns red.
+
+The line above the strip names whatever the **playhead** is over — level, scene,
+death, slot, or "unused video" with the length of the run — and the figure on
+the right is **how much of the video the game actually plays**.
+
+**Click or drag anywhere on the strip to jump there**, and hover for the same
+description as a tooltip.
+
+> **Why the empty space matters.** The dark runs are footage your game never
+> shows. A long one late in a project is worth a look: it may be a scene you
+> meant to mark and forgot. When you're finished, it's also a measure of how
+> much of the file is dead weight — a feature film cut down to a game routinely
+> leaves most of itself unused.
 
 ---
 

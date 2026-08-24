@@ -1203,6 +1203,9 @@ public static class ProjectTest
 
         LevelCfgFilesTest.Run(Check);
 
+        // ---- What a video is and isn't used for ----
+        TimelineMapTest.Run(Check);
+
         // ---- Dialogs whose named controls are wired by the generator ----
         DialogWiringTest.Run(Check);
 
