@@ -84,9 +84,9 @@ AI-generated video, or remaking a classic. No programming required.
 
 | You need | Details |
 |---|---|
-| **Windows 10 or 11, 64-bit**, 1680x1050 minimum resolution| The app is Windows-only for now. Nothing to install beyond the app itself (see below). |
-| **Hypseus Singe** | The emulator that actually runs your game. It's a separate free download — the app links you to it and helps you point at it. **Grab the latest Windows release (64-bit)** — both the current v3.x (SDL3) line and the older v2.12.1 work fine. |
-| **Your video** | A minimum of one MPEG-2 video file with the extension **`.m2v`**. This is the picture track your game plays. (Converting other formats to `.m2v` is done with a tool like FFmpeg — general remuxes can be done inside the app, complex reencodes you will do on your own outside this app.) |
+| **Windows 10 or 11, 64-bit**, 1680x1050 minimum resolution| The app is Windows-only for now. Nothing to install beyond the app itself (see below). Note the app resolution requirements - the app will not display properly on a low-resolution monitor. |
+| **Hypseus Singe** | The emulator that actually runs your game. It's a separate free download — the app links you to it and helps you point at it. **Grab the latest Windows release (64-bit)** — both the current v3.x (SDL3) line and the older v2.12.1 work fine. Link at the bottom of this readme.|
+| **Your video** | A minimum of one MPEG-2 video file with the extension **`.m2v`**. This is the picture track your game plays. (Converting other formats to `.m2v` is done with a tool like FFmpeg — **general remuxes can be done inside this app**, complex reencodes you will do on your own outside this app.) |
 | **Your audio** *(optional but recommended)* | An **`.ogg`** audio file that matches your video (ideally generated at the same time your m2v is), so you hear sound while play-testing and in the finished game. |
 
 > **Why `.m2v` and not `.mp4`?** Laserdisc games need *frame-exact* seeking —
